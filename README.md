@@ -269,7 +269,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Aaron Josue Arce Chacon**
 - GitHub: [@AArCh95](https://github.com/AArCh95)
-- Repository: [marketpulse-](https://github.com/AArCh95/marketpulse-)
+- Repository: [marketpulse](https://github.com/AArCh95/marketpulse)
+- Linkedin: [Aaron Arce](https://www.linkedin.com/in/aar%C3%B3n-arce-a71079277/)
 
 ---
 
