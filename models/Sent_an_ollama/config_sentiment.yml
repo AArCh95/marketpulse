@@ -1,0 +1,32 @@
+# Cloudflare Tunnel Configuration for Sentiment Analysis API
+#
+# 1. Create tunnel: cloudflared tunnel create sentiment-api
+# 2. Update tunnel ID below
+# 3. Update credentials-file path
+# 4. Route DNS: cloudflared tunnel route dns sentiment-api sentiment-api.aarch.shop
+# 5. Run: cloudflared tunnel --config C:\Users\Aaron\.cloudflared\config_sentiment.yml run sentiment-api
+
+tunnel: YOUR_TUNNEL_ID_HERE
+credentials-file: C:\Users\Aaron\.cloudflared\YOUR_TUNNEL_ID.json
+
+ingress:
+  # Sentiment Analysis API - Enhanced with relevance filtering
+  - hostname: sentiment-api.aarch.shop
+    service: http://127.0.0.1:8090
+  
+  # Existing services (from your config.yml)
+  - hostname: marketpulse.aarch.shop
+    service: http://127.0.0.1:8080
+  - hostname: catboost.aarch.shop
+    service: http://127.0.0.1:8500
+  - hostname: dash.aarch.shop
+    service: http://127.0.0.1:8070
+  - hostname: dash-mobile.aarch.shop
+    service: http://127.0.0.1:8071
+  - hostname: trader-dashboard.aarch.shop      
+    service: http://127.0.0.1:8072
+  - hostname: trader.aarch.shop
+    service: http://127.0.0.1:8600
+  
+  # Catch-all rule (must be last)
+  - service: http_status:404

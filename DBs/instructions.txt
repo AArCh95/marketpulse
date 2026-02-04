@@ -1,0 +1,9 @@
+# To open the database, from powershell:
+cd D:\AARCH\DB
+duckdb market.duckdb 
+
+# One-shot daily backfill + 5d intraday:
+python feed_ohlcv_and_features_5d_intraday.py --duckdb "D:\\AARCH\\DBs\\market.duckdb" --include1m --sleep 0.7
+
+# Run all day, refresh every 60s, 50 symbols per cycle:
+python feed_ohlcv_and_features_5d_intraday.py --duckdb "D:\\AARCH\\DBs\\market.duckdb" --include1m --daemon --interval 60 --batch-size 50 --sleep 0.7

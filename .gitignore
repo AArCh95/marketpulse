@@ -1,0 +1,248 @@
+# ============================================
+# MarketPulse .gitignore (Public Release)
+# ============================================
+
+# --- Secrets & Credentials ---
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# Windows reserved device names
+nul
+
+# n8n workflows with embedded credentials
+MarketPulse*.json
+*n8n*.json
+
+# Internal audit reports (contain key documentation)
+GITHUB_AUDIT_REPORT.md
+Final report.md
+*AUDIT*.md
+
+# Test/sample files with embedded data
+**/test_output.json
+**/Input.json
+**/Output.json
+secrets.json
+credentials.json
+*.pem
+*.pfx
+*.p12
+*.key
+*.crt
+*.csr
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+Scripts/
+Lib/
+Include/
+pyvenv.cfg
+
+# --- Databases & Data Files ---
+# DuckDB
+*.duckdb
+*.duckdb.wal
+*.duckdb-shm
+*.duckdb-wal
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Database snapshots
+DBs/market_snap_*.duckdb
+DBs/snapshots/
+DBs/CURRENT_SNAPSHOT*.txt
+
+# Data files
+*.parquet
+*.csv.gz
+*.feather
+data/
+datasets/
+*.arrow
+
+# --- Model Artifacts ---
+# Trained models
+*.cbm
+models/*/models/*.cbm
+models/*/models/*.pkl
+models/*/models/*.joblib
+models/*/models/*.h5
+models/*/models/*.pt
+models/*/models/*.pth
+models/*/models/*.onnx
+models/*/models/*.pb
+
+# Model metadata (regenerate during training)
+models/*/models/feature_order*.json
+models/*/models/training_metadata.json
+
+# CatBoost training info
+catboost_info/
+models/*/catboost_info/
+
+# HuggingFace transformers cache (removed FinBERT)
+.cache/
+.huggingface/
+
+# Scikit-learn
+*.pkl
+*.joblib
+
+# --- Logs ---
+*.log
+logs/
+DBs/logs/
+*.log.*
+*.out
+*.err
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Notebook outputs (optional - uncomment to strip outputs)
+# *.ipynb
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# --- Evaluation Outputs ---
+# Regenerate via train.py
+model_eval_*/
+confusion_matrix*.png
+feature_importance*.csv
+residuals_plot*.png
+signals_test*.csv
+train_log*.txt
+metrics_*.json
+classification_report*.json
+
+# --- IDEs & Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS Files ---
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+.directory
+.Trash-*
+
+# --- Testing & Coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# --- Temporary Files ---
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.old
+*.orig
+*~
+
+# --- Deleted/Archived Directories ---
+# Per cleanup plan
+models/FinBert/
+models/CatBoost_v2/
+models/catboost_daily/
+models/catboost_core/Copies/
+model_eval_5m/
+
+# Root server.py (duplicate/deleted), but allow trader/server.py
+/server.py
+!trader/server.py
+
+# --- Archive (local backup) ---
+AARCH_ARCHIVE/
+archive/
+Copies/
+
+# --- n8n Workflows ---
+# Only commit sanitized templates
+n8n_workflows/*.json
+!n8n_workflows/README.md
+!n8n_workflows/*_template.json
+
+# --- Runtime State ---
+# Sell ban tracking (may contain live positions)
+trader/sell_bans.json
+
+# Sample data with real market info
+dashboard/sample_payload.json
+
+# --- Cloudflare Tunnel ---
+# Tunnel config/certs (if present)
+.cloudflared/
+*.cert.pem
+
+# --- IDE Configs with Paths ---
+.claude/settings.local.json
+
+# --- Excel/CSV Data Files ---
+*.xlsx
+*.csv
+!requirements*.txt
+Database*.xlsx
+dataset*.csv
+
+# --- PowerShell Logs ---
+*.ps1.log
