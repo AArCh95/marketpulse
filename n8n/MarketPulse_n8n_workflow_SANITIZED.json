@@ -1,0 +1,2326 @@
+{
+  "name": "MarketPulse",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://finnhub.io/api/v1/quote?symbol={{ $json.symbol }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 30
+            }
+          }
+        }
+      },
+      "id": "8a8188fa-4784-454c-bba1-653c9861326d",
+      "name": "Finnhub Stock Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -464,
+        720
+      ],
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eGw2EqhIrrpwHTdF",
+          "name": "Finhub Credentials"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        176,
+        720
+      ],
+      "id": "b97307e7-2d9c-49cc-b711-2dce5043b214",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "url": "=https://finnhub.io/api/v1/company-news?symbol={{$json.symbol}}&from={{ new Date(Date.now() - 24*60*60*2000).toISOString().slice(0,10) }}&to={{ new Date().toISOString().slice(0,10) }}&token=YOUR_FINNHUB_TOKEN_HERE\n\n\n",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1488,
+        1152
+      ],
+      "id": "c86c563d-d947-45dd-9861-7dbf8375daf5",
+      "name": "Obtain Most recent News for each Stock",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eGw2EqhIrrpwHTdF",
+          "name": "Finhub Credentials"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "37bcd165-adf4-4eec-8272-5d8a7ca0e97e",
+              "name": "headline",
+              "value": "={{ $json.headline }}",
+              "type": "string"
+            },
+            {
+              "id": "002096ea-2e0a-4c35-899c-1f3152524189",
+              "name": "symbol",
+              "value": "={{ $json.related }}",
+              "type": "string"
+            },
+            {
+              "id": "f873b0f9-d354-49b0-96f5-bec032101e40",
+              "name": "summary",
+              "value": "={{ $json.summary }}",
+              "type": "string"
+            },
+            {
+              "id": "d82f78dd-934b-4d70-9435-133cdc7d3665",
+              "name": "url",
+              "value": "={{ $json.url }}",
+              "type": "string"
+            },
+            {
+              "id": "960ca7bb-f141-4afe-9246-671833e36fdd",
+              "name": "source",
+              "value": "={{ $json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "4c6e2fc8-c5e0-4dec-b2ae-dd3949d88697",
+              "name": "datetime",
+              "value": "={{ $json.datetime }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1760,
+        1408
+      ],
+      "id": "7725b1c8-2f7c-4cdf-8d84-d15e4a06a779",
+      "name": "Clean Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function Node: Group news per symbol (allow duplicates across symbols)\n\n// --- Normalize input ---\nlet newsData;\nif (Array.isArray($json)) {\n  newsData = $json;\n} else if ($json.json && Array.isArray($json.json)) {\n  newsData = $json.json;\n} else if (Array.isArray($input.all())) {\n  newsData = $input.all().map(i => i.json);\n} else {\n  newsData = [$json];\n}\nnewsData = (newsData || []).filter(Boolean);\n\n// Helper: extract 1+ symbols from 'symbol' or 'related'\nfunction extractSymbols(item) {\n  // Prefer explicit 'symbol'\n  if (item.symbol && typeof item.symbol === 'string') {\n    return [item.symbol.trim()].filter(Boolean);\n  }\n  // Fallback to 'related' (e.g., \"AAPL,MSFT\")\n  if (item.related) {\n    if (Array.isArray(item.related)) return item.related.map(s => String(s).trim()).filter(Boolean);\n    return String(item.related).split(',').map(s => s.trim()).filter(Boolean);\n  }\n  return [];\n}\n\n// Group by symbol\nconst bySymbol = new Map();\n\nfor (const article of newsData) {\n  const symbols = extractSymbols(article);\n  if (symbols.length === 0) continue;\n\n  for (const sym of symbols) {\n    if (!bySymbol.has(sym)) bySymbol.set(sym, []);\n    // Push the full article; duplicates across symbols are intentional\n    bySymbol.get(sym).push(article);\n  }\n}\n\n// Sort each symbol's news by datetime desc if available\nfor (const [sym, arr] of bySymbol.entries()) {\n  arr.sort((a, b) => {\n    const ta = Number(a.datetime || 0);\n    const tb = Number(b.datetime || 0);\n    return tb - ta;\n  });\n}\n\n// Emit one n8n item per symbol\nconst result = Array.from(bySymbol.entries()).map(([symbol, news]) => ({\n  json: { symbol, news }\n}));\n\nreturn result;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        1408
+      ],
+      "id": "abe7179b-a88b-4e18-8d31-a2e45f83f6f4",
+      "name": "Group news per symbol"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function Node\n// - Converts epoch datetime (sec/ms) -> ISO\n// - Keeps datetime_epoch_ms + datetime_utc\n// - Groups by symbol, keeps newest N per symbol\n// - Returns items compatible with downstream nodes\n\nconst MAX_PER_SYMBOL = 5;\n\n// ---------- Helpers ----------\nfunction toEpochMs(val) {\n  if (val === null || val === undefined) return null;\n\n  // number (epoch sec/ms)\n  if (typeof val === 'number') {\n    const ms = val < 1e12 ? val * 1000 : val;\n    return Number.isFinite(ms) ? ms : null;\n  }\n\n  // string (maybe ISO or numeric string)\n  if (typeof val === 'string') {\n    const trimmed = val.trim();\n    if (!trimmed) return null;\n\n    // numeric string\n    if (/^-?\\d+(\\.\\d+)?$/.test(trimmed)) {\n      const num = Number(trimmed);\n      const ms = num < 1e12 ? num * 1000 : num;\n      return Number.isFinite(ms) ? ms : null;\n    }\n\n    // ISO-like\n    const t = Date.parse(trimmed);\n    return Number.isFinite(t) ? t : null;\n  }\n\n  // unknown type\n  return null;\n}\n\nfunction toIso(ms) {\n  if (!Number.isFinite(ms)) return null;\n  const d = new Date(ms);\n  return Number.isFinite(d.getTime()) ? d.toISOString() : null;\n}\n\nfunction firstFromRelated(rel) {\n  if (!rel) return null;\n  if (typeof rel === 'string') {\n    const s = rel.trim();\n    if (!s) return null;\n    return s.includes(',') ? s.split(',')[0].trim() : s;\n  }\n  if (Array.isArray(rel) && rel.length) {\n    return String(rel[0]).trim() || null;\n  }\n  return null;\n}\n\nfunction pickSymbol(n) {\n  // Prefer explicit symbol-like fields; then fall back to 'related'\n  return (\n    (n.symbol && String(n.symbol).trim()) ||\n    (n.ticker && String(n.ticker).trim()) ||\n    (n.Symbol && String(n.Symbol).trim()) ||\n    firstFromRelated(n.related) ||\n    (n.s && String(n.s).trim()) ||\n    null\n  );\n}\n\nfunction pickRawDatetime(n) {\n  // Try common fields that might carry the publish time\n  return (\n    n.datetime ??\n    n.published_utc ??\n    n.publishedAt ??\n    n.published_at ??\n    n.time ??\n    n.t ??\n    n.created_at ??\n    n.date ??\n    null\n  );\n}\n\n// ---------- Normalize input ----------\nlet newsData;\nif (Array.isArray($json)) {\n  newsData = $json;\n} else if ($json.json && Array.isArray($json.json)) {\n  newsData = $json.json;\n} else if (Array.isArray($input.all())) {\n  newsData = $input.all().map(item => item.json);\n} else {\n  newsData = [$json];\n}\n\n// ---------- Normalize, convert times, standardize symbol ----------\nconst normalized = (newsData || [])\n  .filter(Boolean)\n  .map(n => {\n    const rawDt = pickRawDatetime(n);\n    const epochMs = toEpochMs(rawDt);\n    const iso = toIso(epochMs);\n    const sym = pickSymbol(n);\n\n    // Overwrite 'datetime' with ISO (many nodes expect a string), but\n    // keep numeric epoch for sorting/analytics.\n    return {\n      ...n,\n      symbol: sym || n.symbol || null,          // ensure 'symbol' exists\n      datetime_epoch_ms: epochMs,               // numeric, good for sorting/math\n      datetime_utc: iso,                        // ISO for logging/debug/DB\n      datetime: iso ?? n.datetime ?? null       // keep field expected by downstream\n    };\n  })\n  // remove items we still can't timestamp\n  .filter(n => Number.isFinite(n.datetime_epoch_ms));\n\n// ---------- Sort newest first ----------\nnormalized.sort((a, b) => (b.datetime_epoch_ms || 0) - (a.datetime_epoch_ms || 0));\n\n// ---------- Group by symbol and keep up to MAX_PER_SYMBOL ----------\nconst bySymbol = new Map();\n\nfor (const news of normalized) {\n  const stockSymbol = (news.symbol || '').toString().trim();\n  if (!stockSymbol) continue;\n\n  if (!bySymbol.has(stockSymbol)) bySymbol.set(stockSymbol, []);\n  const arr = bySymbol.get(stockSymbol);\n  if (arr.length < MAX_PER_SYMBOL) arr.push(news);\n}\n\n// ---------- Flatten & stable sort ----------\nconst result = Array.from(bySymbol.values())\n  .flat()\n  .sort((a, b) => (b.datetime_epoch_ms || 0) - (a.datetime_epoch_ms || 0));\n\n// ---------- Return as n8n items ----------\nreturn result.map(n => ({ json: n }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        1408
+      ],
+      "id": "fe009418-5c63-4c26-89f8-7f3d22044765",
+      "name": "Organize news data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep only significant movers OR open positions and return one item per result\nconst SIGNIFICANT_THRESHOLD = 2.5;   // % move\nconst HIGH_SEVERITY_THRESHOLD = 5;   // % move for \"high\"\n\nfunction fnum(x) {\n  const n = Number(x);\n  return Number.isFinite(n) ? n : undefined;\n}\n\nconst bySymbol = new Map();\n\nfor (const item of $input.all()) {\n  const d = item.json ?? {};\n  const symbol = String(d.symbol ?? '').toUpperCase();\n  if (!symbol) continue;\n\n  // Position flag (robust to \"true\"/true)\n  const hasPosition = (d.has_position === true) || (String(d.has_position).toLowerCase() === 'true');\n\n  // Prefer live/quote fields; fall back to position data so positions never get dropped\n  const currentPrice  = fnum(d.c) ?? fnum(d.position_market_price);\n  const previousClose = fnum(d.pc); // Only daily prev close. Do NOT infer from avg_entry.\n\n  // Daily move (only if we truly have market daily fields)\n  const hasDailyPrices = Number.isFinite(fnum(d.c)) && Number.isFinite(previousClose);\n  const change  = hasDailyPrices\n    ? (Number.isFinite(fnum(d.d)) ? fnum(d.d) : (fnum(d.c) - previousClose))\n    : undefined;\n\n  const changePercent = hasDailyPrices\n    ? (Number.isFinite(fnum(d.dp)) ? fnum(d.dp)\n       : (previousClose !== 0 ? ((fnum(d.c) - previousClose) / previousClose) * 100 : 0))\n    : undefined;\n\n  // Significance only applies when we have a true daily % move\n  const isSignificant = Number.isFinite(changePercent) && Math.abs(changePercent) >= SIGNIFICANT_THRESHOLD;\n\n  // Position info (compute a clean PnL % if not provided)\n  const avgEntry = fnum(d.position_avg_entry);\n  const mktPx    = fnum(d.position_market_price) ?? currentPrice;\n  const derivedPnlPct = (Number.isFinite(avgEntry) && Number.isFinite(mktPx) && avgEntry !== 0)\n    ? ((mktPx / avgEntry) - 1) * 100\n    : undefined;\n\n  const positionInfo = hasPosition ? {\n    has_position: true,\n    position_qty: fnum(d.position_qty) ?? 0,\n    position_avg_entry: avgEntry ?? 0,\n    position_market_price: mktPx ?? currentPrice ?? 0,\n    position_market_value: fnum(d.position_market_value) ?? 0,\n    position_unrealized_pl: fnum(d.position_unrealized_pl) ?? 0,\n    position_unrealized_plpc: fnum(d.position_unrealized_plpc) ?? (Number.isFinite(derivedPnlPct) ? derivedPnlPct / 100 : 0),\n    position_pnl_pct: Number.isFinite(fnum(d.position_pnl_pct)) ? fnum(d.position_pnl_pct) : derivedPnlPct ?? null,\n  } : { has_position: false };\n\n  // Decide if we keep this row\n  const shouldKeep = hasPosition || isSignificant;\n  if (!shouldKeep) continue;\n\n  // Compose base payload\n  const base = {\n    symbol,\n    currentPrice: Number.isFinite(currentPrice) ? currentPrice : undefined,\n    previousClose: Number.isFinite(previousClose) ? previousClose : undefined,\n    change: Number.isFinite(change) ? change : undefined,\n    changePercent: Number.isFinite(changePercent) ? changePercent : undefined,\n    high: Number.isFinite(fnum(d.h)) ? fnum(d.h) : (Number.isFinite(currentPrice) ? currentPrice : undefined),\n    low:  Number.isFinite(fnum(d.l)) ? fnum(d.l) : (Number.isFinite(currentPrice) ? currentPrice : undefined),\n    o: Number.isFinite(fnum(d.o)) ? fnum(d.o) : undefined,\n    pc: Number.isFinite(previousClose) ? previousClose : undefined,\n    t: d.t ?? null,\n    ...positionInfo,\n  };\n\n  // Labels: portfolio takes precedence whenever we have a position\n  const alertType = hasPosition ? 'position'\n                    : (isSignificant ? (changePercent > 0 ? 'surge' : 'drop') : 'position');\n\n  const severity  = hasPosition ? 'portfolio'\n                    : (isSignificant ? (Math.abs(changePercent) >= HIGH_SEVERITY_THRESHOLD ? 'high' : 'medium') : 'medium');\n\n  const reason    = hasPosition ? 'portfolio'\n                    : (isSignificant ? 'threshold' : 'threshold');\n\n  const row = { ...base, alertType, severity, reason };\n\n  // Ensure exactly one item per symbol (last one wins)\n  bySymbol.set(symbol, row);\n}\n\n// Return one item per kept entry (no wrapper)\nreturn Array.from(bySymbol.values()).map(x => ({ json: x }));\n"
+      },
+      "id": "897cd61c-e151-43d4-bc07-c9ac777cd075",
+      "name": "SET THRESHOLD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://finnhub.io/api/v1/stock/metric?symbol={{ encodeURIComponent($json.symbol) }}&metric=all&token=YOUR_FINNHUB_TOKEN_HERE",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 30
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -272,
+        1344
+      ],
+      "id": "44351187-9397-43d1-8c8a-b3513def9999",
+      "name": "Get Metrics",
+      "retryOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eGw2EqhIrrpwHTdF",
+          "name": "Finhub Credentials"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -272,
+        1552
+      ],
+      "id": "999930dc-87d1-4a76-9cb0-5108abf444fb",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/1 9-15 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "552a4065-347f-472a-93d3-bfbfb9c27879",
+      "name": "Stock Notification",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -144,
+        -32
+      ],
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function/Code node — Run Once for All Items\n// Output: one item per block (e.g., 3 items for NKE, PTON, UNH)\n\nfunction filterBlock(block) {\n  if (!block || typeof block !== 'object') return block;\n\n  const symbol = block.symbol;\n  const results = Array.isArray(block.results) ? block.results : [];\n\n  const newResults = results.map(article => {\n    const insights = Array.isArray(article.insights) ? article.insights : [];\n    return {\n      ...article,\n      insights: insights.filter(i => i && i.ticker === symbol),\n    };\n  });\n\n  return { ...block, results: newResults };\n}\n\nconst inputItems = $input.all();\n\n// Normalize to an array of blocks no matter how the data arrives\nlet blocks;\nif (inputItems.length === 1 && Array.isArray(inputItems[0].json)) {\n  // Case: single item with the whole array at root\n  blocks = inputItems[0].json;\n} else if (inputItems.length === 1 && inputItems[0].json && Array.isArray(inputItems[0].json.data)) {\n  // Case: single item with array under \"data\"\n  blocks = inputItems[0].json.data;\n} else {\n  // Case: multiple items, each item.json is one block\n  blocks = inputItems.map(it => it.json);\n}\n\n// Filter insights per block, then return ONE ITEM PER BLOCK\nconst filtered = blocks.map(filterBlock);\nreturn filtered.map(b => ({ json: b }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        1712
+      ],
+      "id": "db4ac3a6-6d80-40c5-985d-f717228d2db6",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1184,
+        1520
+      ],
+      "id": "3f1c47cd-2ebe-42c8-a067-ab834d3d88b8",
+      "name": "Add symbol"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0bf3779b-2343-465f-ad48-c274dd2857bc",
+              "name": "symbol",
+              "value": "={{ $json.symbol }}",
+              "type": "string"
+            },
+            {
+              "id": "dbeef76a-82ce-43d8-adb9-496def1ab7a4",
+              "name": "results[0].title",
+              "value": "={{ $json.results[0].title }}",
+              "type": "string"
+            },
+            {
+              "id": "1efaa86f-87ff-429e-8992-7ec79acf6dec",
+              "name": "description",
+              "value": "={{ $json.results[0].description }}",
+              "type": "string"
+            },
+            {
+              "id": "7bb9e034-cdaa-497d-a45c-0847268fa009",
+              "name": "results[0].insights[0].sentiment",
+              "value": "={{ $json.results[0].insights[0].sentiment }}",
+              "type": "string"
+            },
+            {
+              "id": "76f0bdbe-6f0d-450d-971b-6d7a9890b610",
+              "name": "results[0].insights[0].sentiment_reasoning",
+              "value": "={{ $json.results[0].insights[0].sentiment_reasoning }}",
+              "type": "string"
+            },
+            {
+              "id": "f5ba2fd4-5db3-4625-9d31-1bd6fbde5b40",
+              "name": "results[0].article_url",
+              "value": "={{ $json.results[0].article_url }}",
+              "type": "string"
+            },
+            {
+              "id": "96ca3813-042f-4299-844a-059e0770492e",
+              "name": "results[0].datetime",
+              "value": "={{ $json.results[0].published_utc }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1184,
+        1904
+      ],
+      "id": "fe0a751f-130d-4fc1-9d8d-9c63a3a01e36",
+      "name": "Get relevant Keys"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "symbol",
+        "joinMode": "keepEverything",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2288,
+        1584
+      ],
+      "id": "76e62b20-2c48-40b1-a648-bb038135809d",
+      "name": "Aggregate News Data"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "914b989a-c619-4948-a905-7dbbe3eda965",
+              "name": "symbol",
+              "value": "={{ $json.symbol }}",
+              "type": "string"
+            },
+            {
+              "id": "da3114c7-2aa4-41b9-aea0-55623258d4b1",
+              "name": "asof_utc",
+              "value": "={{ $now }}",
+              "type": "string"
+            },
+            {
+              "id": "fc70017a-772e-40d8-acc7-a393a6d90c5d",
+              "name": "Polygon news results",
+              "value": "={{ $json.results }}",
+              "type": "array"
+            },
+            {
+              "id": "8001ad7f-8191-461b-9f08-466f499773f5",
+              "name": "Polygon news description",
+              "value": "={{ $json.description }}",
+              "type": "string"
+            },
+            {
+              "id": "1e92fa7b-b964-423e-89f9-45329b228eaf",
+              "name": "More news",
+              "value": "={{ $json.news }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2304,
+        1824
+      ],
+      "id": "1cd6c400-b390-485e-9771-ff9300084eaa",
+      "name": "Clean Final News Data"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.polygon.io/v2/reference/news?ticker={{$json.symbol}}&order=desc&limit=1&sort=published_utc&apiKey=YOUR_POLYGON_API_KEY_HERE\n\n",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1184,
+        1168
+      ],
+      "id": "d824e781-aa04-4609-932c-32a6de1aa37a",
+      "name": "Obtain Most recent News for each Stock - Polygon",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eGw2EqhIrrpwHTdF",
+          "name": "Finhub Credentials"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// N8N Code Node - Data Normalization\n// Input: Array of stock data objects\n// Output: Normalized format with symbol and consolidated news\n\nconst inputData = $input.all();\nconst normalizedData = [];\n\n// Process each input item\ninputData.forEach(item => {\n  const data = item.json;\n  \n  // Handle both array input and single object input\n  const stocksArray = Array.isArray(data) ? data : [data];\n  \n  stocksArray.forEach(stock => {\n    const symbol = stock.symbol;\n    const asof_utc = stock.asof_utc;\n    const allNews = [];\n    \n    // Process Polygon news results\n    if (stock[\"Polygon news results\"] && Array.isArray(stock[\"Polygon news results\"])) {\n      stock[\"Polygon news results\"].forEach(polygonNews => {\n        allNews.push({\n          source: \"Polygon\",\n          title: polygonNews.title,\n          url: polygonNews.article_url || null,\n          description: stock[\"Polygon news description\"] || null,\n          datetime: polygonNews.datetime || null\n        });\n      });\n    }\n    \n    // Process More news\n    if (stock[\"More news\"] && Array.isArray(stock[\"More news\"])) {\n      stock[\"More news\"].forEach(moreNews => {\n        allNews.push({\n          source: moreNews.source,\n          title: moreNews.headline,\n          url: moreNews.url,\n          summary: moreNews.summary,\n          datetime: moreNews.datetime\n        });\n      });\n    }\n    \n    // Create normalized object\n    const normalizedStock = {\n      symbol: symbol,\n      asof_utc: asof_utc,\n      news: allNews\n    };\n    \n    normalizedData.push(normalizedStock);\n  });\n});\n\n// Return normalized data\nreturn normalizedData.map(item => ({ json: item }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        2048
+      ],
+      "id": "7179461c-2ab1-401a-9d9b-8224d4b552da",
+      "name": "Normalized News Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn all incoming items into ONE item with a field `payload` = array\nconst arr = $input.all().map(i => i.json);\nreturn [{ json: { payload: arr } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2304,
+        2272
+      ],
+      "id": "0c195e3b-0203-4f0e-b5fa-d6cdc74f1a8c",
+      "name": "Prepare data for Fibert"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "symbol",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -560,
+        2464
+      ],
+      "id": "6a812aeb-161a-4f5c-8606-acc5179ac1be",
+      "name": "Merge3"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0f00a771-9701-42be-838d-ad9fc63201a6",
+              "name": "symbol",
+              "value": "={{ $json.symbol }}",
+              "type": "string"
+            },
+            {
+              "id": "9e4ff173-3068-4153-b28e-a75b0e9b76a1",
+              "name": "currentPrice",
+              "value": "={{ $json.currentPrice }}",
+              "type": "number"
+            },
+            {
+              "id": "018327fd-601a-44f2-9590-0672cc214c9a",
+              "name": "previousClose",
+              "value": "={{ $json.previousClose }}",
+              "type": "number"
+            },
+            {
+              "id": "d710790c-e8f0-4488-99ec-601d6002ca44",
+              "name": "change",
+              "value": "={{ $json.change }}",
+              "type": "number"
+            },
+            {
+              "id": "363d6596-e18e-4d47-bf74-bc960f67ad57",
+              "name": "changePercent",
+              "value": "={{ $json.changePercent }}",
+              "type": "number"
+            },
+            {
+              "id": "587dd1b6-7060-4349-8489-dd9d8ee7e480",
+              "name": "alertType",
+              "value": "={{ $json.alertType }}",
+              "type": "string"
+            },
+            {
+              "id": "ed82f0ec-82fb-461a-8a3c-5c4af04e0ab5",
+              "name": "severity",
+              "value": "={{ $json.severity }}",
+              "type": "string"
+            },
+            {
+              "id": "3767182d-5b0f-487b-b714-0d063d34b2d1",
+              "name": "high",
+              "value": "={{ $json.high }}",
+              "type": "number"
+            },
+            {
+              "id": "63a2fa50-7802-4f05-9ffb-c2a3ec9630e1",
+              "name": "low",
+              "value": "={{ $json.low }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        1536
+      ],
+      "id": "4358eb9b-5283-4dd8-83e1-c9ca976810cc",
+      "name": "Basic Stock Data"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6e0a3a64-b923-4de2-b3de-427bebbc0fd8",
+              "name": "results",
+              "value": "={{ $json.results }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1184,
+        1360
+      ],
+      "id": "1344151e-58de-4820-887f-07375d215962",
+      "name": "Seperate Json by symbol"
+    },
+    {
+      "parameters": {
+        "url": "=https://data.alpaca.markets/v2/stocks/snapshots?symbols={{$json.symbol}}&feed=iex",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "APCA-API-KEY-ID",
+              "value": "PKFTA8FHFTXP5OGA0SLA"
+            },
+            {
+              "name": "APCA-API-SECRET-KEY",
+              "value": "ztJSbWMENxSNfhu9pLBs3B1aTbYvdNdgR6PRlXpi"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -272,
+        720
+      ],
+      "id": "0e358fe1-2fc8-42b5-8b59-3fe0879a6890",
+      "name": "Alpaca Stock Price",
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst watchlist = ['ORCL','PANW','PDD','PEP','PFE','PG','PLTR','PM','PYPL','QCOM',\n    'REGN','ROP','ROST','RTX','SBUX','SCHW','SHOP','SNPS','SO','SPG',\n    'T','TEAM','TGT','TMO','TMUS','TSLA','TTD','TTWO','TXN','UNH',\n    'UNP','UPS','USB','V','VRTX','VZ','WBD','WDAY','WFC','WMT',\n    'XEL','XOM','ZS', 'UHN'];\n\n\n\n// Create separate items for each stock\nconst stockItems = watchlist.map(symbol => ({\n  json: { symbol: symbol }\n}));\n\nreturn stockItems;"
+      },
+      "id": "a38aaf75-e992-4f94-bdf7-bace7f342e03",
+      "name": "Generate Second Stock Watchlist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Define your watchlist of stocks to monitor\n// Add/remove symbols as needed\n// Add/remove symbols as needed\nconst watchlist = [\n    'AAPL','ABBV','ABT','ACGL','ACN','ADBE','ADM','AEP','AFL','AIG',\n    'AMAT','AMD','AMGN','AMT','AMZN','AON','APA','APP','ARE','ARM',\n    'ASML','ATO','AVGO','AXON','AXP','AZN','BA','BAC','BALL','BAX',\n    'BBY','BEN','BIIB','BK','BKNG','BKR','BLK','BMY','BRK.B','BRO',\n    'C','CARR','CAT','CB','CBOE','CCEP','CDNS','CDW','CEG','CHD',\n    'CHTR','CL','CMCSA','CMS','CNP','COF','COO','COP','COST','CPRT',\n    'CRM','CSCO','CSGP','CTAS','CTSH','CTVA','CVS','CVX','D','DAL',\n    'DASH','DDOG','DE','DG','DHI','DHR','DIS','DLR','DLTR','DOV',\n    'DRI','DUK','DVN','DXCM','EA','ED','EFX','EIX','EL','EMR',\n    'EOG','EQT','ESS','ETN','EXC','F','FAST','FDX','FE','FIS',\n    'FITB','FMC','FTNT','GD','GE','GEHC','GFS','GILD','GL','GLW',\n    'GM','GOOG','GOOGL','GS','HAL','HAS','HD','HIG','HON','HPE',\n    'HPQ','HRL','HSY','HUM','IBM','IDXX','IEX','IFF','INTC','INTU',\n    'IP','IPG','IRM','ISRG','IT','JBHT','JCI','JNJ','JPM','K',\n    'KEY','KIM','KLAC','KMB','KMI','KMX','KO','KR','KSS','L',\n    'LDOS','LEG','LEN','LH','LIN','LKQ','LLY','LMT','LNC','LNT',\n    'LOW','LULU','LUMN','LVS','LW','LYB','MA','MAA','MAS','MCD',\n    'MCK','MDLZ','MDT','MELI','MET','META','MKC','MLM','MMM','MNST',\n    'MO','MOS','MPWR','MRK','MRVL','MS','MSCI','MSFT','MSTR','MTB',\n    'MTD','MU','NEE','NFLX','NKE','NOW','NVDA','NXPI','ODFL','ON'\n];\n\n\n\n\n// Create separate items for each stock\nconst stockItems = watchlist.map(symbol => ({\n  json: { symbol: symbol }\n}));\n\nreturn stockItems;"
+      },
+      "id": "93b985cb-5d18-4259-96c4-f3cee20a44ae",
+      "name": "Generate First Stock Watchlist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\n\nfor (const item of items) {\n  const root = item.json || {};\n  const [symbol] = Object.keys(root || {});\n  if (!symbol) continue;\n\n  const s = root[symbol] || {};\n  const dbar = s.dailyBar || {};\n  const prev = s.prevDailyBar || {};\n  const last = s.latestTrade || {};\n\n  const c  = (dbar.c != null) ? dbar.c : (last.p ?? null);\n  const pc = (prev.c != null) ? prev.c : null;\n  const d  = (c != null && pc != null) ? c - pc : null;\n  const dp = (d != null && pc) ? (d / pc) * 100 : null;\n\n  out.push({\n    json: {\n      symbol,\n      c,\n      d,\n      dp,\n      h: dbar.h ?? null,\n      l: dbar.l ?? null,\n      o: dbar.o ?? null,\n      pc,\n      t: dbar.t || last.t || null\n    }\n  });\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        896
+      ],
+      "id": "d721286b-df5e-414d-b5b7-8acde4cd619c",
+      "name": "Format Basic finance data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n \"Function\" node\nreturn items.map(item => {\n  const j = { ...item.json };\n\n  if (j.t !== undefined && j.t !== null) {\n    let ts = Number(j.t);\n    if (Number.isFinite(ts)) {\n      // If it's in seconds (10 digits), convert to ms\n      if (ts < 1e12) ts *= 1000;\n      const iso = new Date(ts).toISOString().replace('.000Z', 'Z');\n      j.t = iso;\n    }\n  }\n\n  return { json: j, pairedItem: item.pairedItem };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        560
+      ],
+      "id": "8d9c8fe2-f185-434c-bc04-a5d243838354",
+      "name": "Format date data"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        560,
+        720
+      ],
+      "id": "5bc6e154-1ece-4eaf-b6ce-0caab68e5a23",
+      "name": "Aggregate all basic finance data"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7525c350-b1e1-4534-a805-e067e30c785d",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "no_news",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "b2c387b0-706d-4193-ade2-bd1dc1498ed0",
+              "leftValue": "={{ $json.symbols }}",
+              "rightValue": "",
+              "operator": {
+                "type": "array",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        1984
+      ],
+      "id": "f62818e5-fa45-4cb0-a01c-07ce64431726",
+      "name": "If",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        128,
+        2064
+      ],
+      "id": "fef23f6b-794e-4329-805e-e8939ef9c8c0",
+      "name": "Merge news w/ no news"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n \"Function\" node\n// Accepts either:\n//  - multiple input items (one per record), or\n//  - a single item whose `json` is an array (like the sample you pasted)\n\nconst data = (items.length === 1 && Array.isArray(items[0].json))\n  ? items[0].json\n  : items.map(i => i.json);\n\n// Count appearances and record if any entry for a symbol has news[]\nconst counts = Object.create(null);\nconst hasNews = Object.create(null);\n\nfor (const r of data) {\n  const sym = r?.symbol;\n  if (!sym) continue;\n\n  counts[sym] = (counts[sym] ?? 0) + 1;\n  if (Array.isArray(r.news) && r.news.length > 0) {\n    hasNews[sym] = true;\n  }\n}\n\n// Classify:\n// - had_news: symbol appears at least twice AND has at least one news entry\n// - no_news:  symbol appears only once AND has no news\nconst hadNews = [];\nconst noNews = [];\n\nfor (const sym of Object.keys(counts)) {\n  if (counts[sym] >= 2 && hasNews[sym] === true) {\n    hadNews.push(sym);\n  } else if (counts[sym] === 1 && !hasNews[sym]) {\n    noNews.push(sym);\n  }\n}\n\n// Make it pretty & deterministic\nhadNews.sort();\nnoNews.sort();\n\nreturn [\n  { json: { status: 'had_news', symbols: hadNews, total: hadNews.length } },\n  { json: { status: 'no_news',  symbols: noNews,  total: noNews.length  } },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        2064
+      ],
+      "id": "b3a7292b-9160-46c5-8d28-75f28a1b9c26",
+      "name": "check if news or not news"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5a302489-5edd-4758-a1d2-d07429a46d5e",
+              "name": "symbols",
+              "value": "={{ $json.symbols }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1072,
+        2720
+      ],
+      "id": "5a8e1688-1a8a-4d98-9877-dff93ceccb5d",
+      "name": "Prepare non news data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n \"Function\" node\n\n// Normalize input: allow a single item that's an array, or many items\nconst data = (items.length === 1 && Array.isArray(items[0].json))\n  ? items[0].json\n  : items.map(i => i.json);\n\n// Try to find the \"symbols\" array\nlet list = null;\nfor (const rec of data) {\n  if (Array.isArray(rec.symbols)) {\n    list = rec.symbols.map(s => String(s));\n    break;\n  }\n}\n\n// Fallback: if no explicit symbols array, derive from records' `symbol` keys\nif (!list) {\n  const uniq = new Set();\n  for (const rec of data) {\n    if (rec && rec.symbol) uniq.add(String(rec.symbol));\n  }\n  list = [...uniq];\n}\n\n// Dedupe while preserving order\nconst seen = new Set();\nconst out = [];\nfor (const s of list) {\n  const sym = String(s).trim();\n  if (!sym || seen.has(sym)) continue;\n  seen.add(sym);\n\n  out.push({\n    json: {\n      symbol: sym,\n      news_cov_60m: null,\n      news_sent_mean_60m: null,\n      news_uniqueness_24h: null,\n      news_sent_std_24h: null,\n      news_age_min: null,\n    },\n  });\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        2768
+      ],
+      "id": "e2f269a4-ea38-4d14-9121-c9cac2d1ad31",
+      "name": "No News Stock (with basic metrics)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1f260115-e8b4-4189-9ea6-4e4c4c40c896",
+              "name": "symbol",
+              "value": "={{ $json.symbol }}",
+              "type": "string"
+            },
+            {
+              "id": "52fe06be-7122-4222-995d-e215bc2782f3",
+              "name": "sentiment",
+              "value": "={{ $json.sentiment.label }}",
+              "type": "string"
+            },
+            {
+              "id": "349b17c9-c316-45e2-8da5-83a95491bc04",
+              "name": "news_cov_60m",
+              "value": "={{ $json.news_cov_60m }}",
+              "type": "number"
+            },
+            {
+              "id": "cc196b28-1410-4dca-98e8-95baa7acf99e",
+              "name": "news_sent_mean_60m",
+              "value": "={{ $json.news_sent_mean_60m }}",
+              "type": "string"
+            },
+            {
+              "id": "37fc5c45-6084-45eb-83f9-d6ab46c8e219",
+              "name": "news_uniqueness_24h",
+              "value": "={{ $json.news_uniqueness_24h }}",
+              "type": "number"
+            },
+            {
+              "id": "4e706004-6c70-4a4d-ae2d-f7e0c6cf090a",
+              "name": "news_sent_std_24h",
+              "value": "={{ $json.news_sent_std_24h }}",
+              "type": "number"
+            },
+            {
+              "id": "b9771fa8-30cd-4b7f-9c80-524a0832e630",
+              "name": "news_age_min",
+              "value": "={{ $json.news_age_min }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        464,
+        2992
+      ],
+      "id": "d61c60a0-cd8d-4365-abc6-b88e3f3fa3c3",
+      "name": "Clean FinBERT data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node — Alert gating + OpportunityScore + cooldown (enriched with news/sentiment)\n// Works with decisions: buy/hold/sell and long/short/queue_*\n// Uses sentiment block from joined news feed and restores `metrics.opportunity_score`.\n//\n// ---------- Tunables ----------\nconst cfg = {\n  // Core gates\n  minEdgeRTH: 0.15,\n  minEdgeOOH: 0.15,\n  maxFlatProb: 0.40,\n  minScoreRTH: 60,\n  minScoreOOH: 70,\n\n  // OpportunityScore weights (sum is arbitrary; final ×100)\n  weights: {\n    edge: 2.5,        // model edge (|p_up - p_down| in trade dir)\n    vwap: 0.8,        // distance to VWAP (bps, penalized as it grows)\n    delta: 0.5,       // move since last alert/baseline (banded)\n    sentiment: 0.6    // news sentiment aligned with direction\n  },\n\n  // Delta override knobs (% units)\n  repeatSuppressBandPct: 0.5,    // suppress tiny repeats within ±0.5%\n  downsideBreakPct: -1.0,        // force notify if ≤ -1.0%\n\n  // Cooldown & staleness (minutes)\n  cooldownMin: 4,                // suppress if last_sent_at < 4 min ago\n  lastAlertMaxAgeMin: 120,       // treat last_alert_price as stale after 120 min\n};\n\n// ---------- Helpers ----------\nconst num = (v, d = null) =>\n  (v === null || v === undefined || v === \"\" || Number.isNaN(+v) ? d : +v);\nconst abs = Math.abs;\nconst get = (o, path, d = undefined) =>\n  path.split(\".\").reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? d;\n\nconst nyNow = () =>\n  new Date(new Date().toLocaleString(\"en-US\", { timeZone: \"America/New_York\" }));\nconst isNYSEOpenNow = () => {\n  const d = nyNow();\n  const day = d.getDay(); // 0=Sun ... 6=Sat\n  if (day === 0 || day === 6) return false;\n  const mins = d.getHours() * 60 + d.getMinutes();\n  return mins >= (9 * 60 + 30) && mins < (16 * 60);\n};\nconst floorTo5m = (ms) => {\n  const m = Math.floor(ms / 60000);\n  return Math.floor(m / 5) * 5;\n};\n\n// Decision/dir utilities\nconst mapDirFromDecision = (decision, pUp, pDown) => {\n  const d = String(decision ?? \"\").toLowerCase();\n  if ([\"buy\", \"long\", \"queue_long\"].some(x => d.includes(x))) return \"long\";\n  if ([\"sell\", \"short\", \"queue_short\"].some(x => d.includes(x))) return \"short\";\n  // fallback by higher prob\n  return (num(pUp, 0) >= num(pDown, 0)) ? \"long\" : \"short\";\n};\nconst edgeByDir = (dir, pUp, pDown) =>\n  dir === \"long\" ? Math.max(0, num(pUp, 0) - num(pDown, 0))\n                 : Math.max(0, num(pDown, 0) - num(pUp, 0));\n\nconst mapSentimentLabel = (lbl) => {\n  const s = String(lbl ?? \"\").toLowerCase();\n  if ([\"bullish\",\"positive\"].includes(s)) return \"bullish\";\n  if ([\"bearish\",\"negative\"].includes(s)) return \"bearish\";\n  return \"neutral\";\n};\n\n// ---------- Now/Bar bucket ----------\nconst nowMs = Date.now();\nconst inRTH = isNYSEOpenNow();\nconst bucketNowMin = floorTo5m(nowMs);\n\n// ---------- Process ----------\nreturn items.map(({ json }) => {\n  const j = json || {};\n\n  // --- Decision & probabilities (support both model.* and root)\n  const rawDecision = String(get(j, \"model.decision\", get(j, \"decision\", \"hold\")));\n  // During RTH, treat queue_* as live\n  const decision =\n    (inRTH && rawDecision === \"queue_long\")  ? \"long\"  :\n    (inRTH && rawDecision === \"queue_short\") ? \"short\" :\n    rawDecision;\n\n  const p_up   = num(get(j, \"model.probs.p_up\",   get(j, \"probs.p_up\",   null)), 0);\n  const p_down = num(get(j, \"model.probs.p_down\", get(j, \"probs.p_down\", null)), 0);\n  const p_flat = num(get(j, \"model.probs.p_flat\", get(j, \"probs.p_flat\", null)), 0);\n  const vwapBps = num(get(j, \"features.dist_vwap_bps\", null), null); // can be null\n\n  // --- Price selection (close_now) ---\n  const closeNow = (() => {\n    const a = num(get(j, \"price.current\", null), null);\n    if (a !== null) return a;\n    const b = num(get(j, \"metrics.close_now\", null), null);\n    if (b !== null) return b;\n    const c = num(get(j, \"position_market_price\", null), null);\n    if (c !== null) return c;\n    const d = num(get(j, \"basics.close_d\", null), null);\n    return d !== null ? d : null;\n  })();\n\n  // --- last_alert_price (multiple keys tolerated) ---\n  let lastAlertPx = (() => {\n    const a = num(j[\"DB-last_alert_price\"], null);\n    if (a !== null) return a;\n    const b = num(j[\"DB_last_alert_price\"], null);\n    if (b !== null) return b;\n    const c = num(get(j, \"metrics.last_alert_price\", null), null);\n    if (c !== null) return c;\n    const d = num(get(j, \"db.last_alert_price\", null), null);\n    return d !== null ? d : null;\n  })();\n\n  // --- last_sent_at / las_sent_at (UTC)\n  const lastSentAtStr =\n    j.last_sent_at ?? j.las_sent_at ??\n    get(j, \"metrics.last_sent_at\", null) ??\n    get(j, \"freshness.last_sent_at\", null);\n  const lastSentAtMs = lastSentAtStr ? Date.parse(String(lastSentAtStr)) : null;\n  const minutesSinceLastSent = lastSentAtMs ? (nowMs - lastSentAtMs) / 60000 : null;\n  const lastBucketMin = lastSentAtMs ? floorTo5m(lastSentAtMs) : null;\n\n  // Age-out lastAlertPx if too old\n  const lastPxIsStale =\n    minutesSinceLastSent !== null && minutesSinceLastSent > cfg.lastAlertMaxAgeMin;\n  if (lastPxIsStale) lastAlertPx = null;\n\n  // Baseline if lastAlertPx unusable\n  const baselinePx = (() => {\n    const a = num(j[\"DB-baseline_price\"], null);\n    if (a !== null && a > 0) return a;\n    const b = num(get(j, \"price.previous_close\", null), null);\n    if (b !== null && b > 0) return b;\n    const c = num(get(j, \"basics.open_d\", null), null);\n    return c !== null && c > 0 ? c : null;\n  })();\n\n  const comparePx = (lastAlertPx && lastAlertPx > 0) ? lastAlertPx : baselinePx;\n\n  // --- Δ% since last alert/baseline ---\n  const sinceAlertPct = (closeNow !== null && comparePx !== null && comparePx !== 0)\n    ? ((closeNow - comparePx) / comparePx) * 100\n    : null;\n\n  // --- Direction from decision/probs ---\n  const direction = mapDirFromDecision(decision, p_up, p_down);\n  const edge = edgeByDir(direction, p_up, p_down);\n  const edgeThresh = inRTH ? cfg.minEdgeRTH : cfg.minEdgeOOH;\n\n  // --- Sentiment gating from joined news ---\n  const sScore = num(get(j, \"sentiment.score\", null), 0);            // already aggregated\n  const sLabel = mapSentimentLabel(get(j, \"sentiment.label\", null)); // positive/negative/neutral\n  const sConf  = num(get(j, \"sentiment.confidence\", null), 0);       // 0..1\n  const aligned =\n    (sLabel === \"bullish\" && direction === \"long\") ||\n    (sLabel === \"bearish\" && direction === \"short\");\n  // Sentiment contribution: require at least moderate confidence; negative if misaligned\n  const sentimentComponent = (sConf >= 0.6)\n    ? (aligned ? Math.max(0, sScore) : Math.max(0, -sScore))\n    : 0; // ignore low confidence\n\n  // --- Delta / VWAP components ---\n  const deltaComponent = (sinceAlertPct === null)\n    ? 0\n    : Math.max(0, abs(sinceAlertPct) - cfg.repeatSuppressBandPct); // only reward outside tiny band\n\n  // Penalize distance from VWAP (closer is better)\n  const vwapComponent = (vwapBps === null || Number.isNaN(vwapBps))\n    ? 0\n    : Math.max(0, (100 - Math.min(100, abs(vwapBps)))) / 100; // 0..1 where 1=at VWAP\n\n  // --- Opportunity Score (0..100) ---\n  const score =\n    100 * (\n      cfg.weights.edge      * edge +\n      cfg.weights.vwap      * vwapComponent +\n      cfg.weights.delta     * (deltaComponent / 5) + // scale: 5% delta ≈ 1.0 unit\n      cfg.weights.sentiment * sentimentComponent\n    );\n\n  // --- Baseline gates ---\n  const reasons = [];\n  const decisionAllowed = (() => {\n    const d = String(decision).toLowerCase();\n    // allow both trade-verbs and model-sides\n    const ok = [\"buy\",\"sell\",\"hold\",\"long\",\"short\",\"queue_long\",\"queue_short\"];\n    return ok.some(k => d.includes(k));\n  })();\n  if (!decisionAllowed) reasons.push(\"decision_not_allowed\");\n\n  const flatOK = p_flat <= cfg.maxFlatProb;\n  if (!flatOK) reasons.push(\"flat_prob_high\");\n\n  const edgeOK = edge >= edgeThresh;\n  if (!edgeOK) reasons.push(\"edge_below_threshold\");\n\n  const minScore = inRTH ? cfg.minScoreRTH : cfg.minScoreOOH;\n  const scoreOK = score >= minScore;\n  if (!scoreOK) reasons.push(\"score_below_threshold\");\n\n  let notify = decisionAllowed && flatOK && edgeOK && scoreOK;\n  let notify_reason;\n\n  // --- Cooldown ---\n  if (minutesSinceLastSent !== null && minutesSinceLastSent < cfg.cooldownMin) {\n    notify = false;\n    reasons.push(`cooldown_${cfg.cooldownMin}min_active(${minutesSinceLastSent.toFixed(1)}m)`);\n  }\n\n  // --- 5m bar de-dup ---\n  if (lastBucketMin !== null && lastBucketMin === bucketNowMin) {\n    notify = false;\n    reasons.push(\"same_5m_bucket\");\n  }\n\n  // --- HARD Δ% overrides ---\n  if (sinceAlertPct !== null) {\n    const band = cfg.repeatSuppressBandPct;\n    if (Math.abs(sinceAlertPct) < band) {\n      notify = false;\n      reasons.push(`delta_within_${band.toFixed(2)}pct`);\n      notify_reason = `suppress: Δ=${sinceAlertPct.toFixed(2)}% within ±${band.toFixed(2)}% (now=${closeNow}, base=${comparePx})`;\n    } else if (sinceAlertPct <= cfg.downsideBreakPct) {\n      notify = true;\n      notify_reason = `notify: Δ=${sinceAlertPct.toFixed(2)}% ≤ ${cfg.downsideBreakPct}% (override; now=${closeNow}, base=${comparePx})`;\n    }\n  } else {\n    reasons.push(\"delta_unavailable\");\n  }\n\n  if (!notify_reason) {\n    notify_reason = notify\n      ? `notify: score=${score.toFixed(1)} ≥ ${minScore}, edge=${edge.toFixed(3)} ≥ ${edgeThresh}, p_flat=${p_flat.toFixed(3)} ≤ ${cfg.maxFlatProb}, decision=${decision}`\n      : `suppress: ${reasons.join(\", \")}`;\n  }\n\n  // --- Output ---\n  return {\n    json: {\n      ...j,\n      freshness: { ...(j.freshness || {}), in_rth: inRTH },\n      metrics: {\n        ...get(j, \"metrics\", {}),\n        in_rth: inRTH,\n        decision,\n        direction,\n        p_up, p_down, p_flat,\n        edge: +edge.toFixed(6),\n        edge_threshold: edgeThresh,\n        vwap_bps: vwapBps,\n        last_alert_price: (lastAlertPx ?? null),\n        baseline_price: (baselinePx ?? null),\n        close_now: closeNow,\n        delta_since_alert_pct: sinceAlertPct !== null ? +sinceAlertPct.toFixed(3) : null,\n        sentiment_label: sLabel,\n        sentiment_confidence: sConf,\n        sentiment_score_used: +sentimentComponent.toFixed(3),\n        aligned_sentiment: (sentimentComponent > 0),\n        opportunity_score: +score.toFixed(1),\n        min_score_required: minScore,\n        last_sent_at: lastSentAtStr ?? null,\n        minutes_since_last_sent: minutesSinceLastSent !== null ? +minutesSinceLastSent.toFixed(2) : null,\n        bucket_now_min: bucketNowMin,\n        last_bucket_min: lastBucketMin,\n      },\n      notify,\n      notify_reason,\n    },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3264,
+        2976
+      ],
+      "id": "03a246e4-8b2c-4379-a2b2-eb5d1f60c79d",
+      "name": "Check if movers / notify"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://trader.aarch.shop/submit_open_queue",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4192,
+        3456
+      ],
+      "id": "5d20cf16-b7d7-419f-8575-875b5942b883",
+      "name": "submit_open_queue",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "R9ttQYZIC57ZoeJh",
+          "name": "Trader_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://trader.aarch.shop/sync_positions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4048,
+        3680
+      ],
+      "id": "74adad25-e556-4819-8ec1-7e3f090a4620",
+      "name": "sync_positions",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "R9ttQYZIC57ZoeJh",
+          "name": "Trader_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://trader.aarch.shop/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $items().map(i => i.json) }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3920,
+        3424
+      ],
+      "id": "9e105d60-eb08-496d-8eda-9e5237ef2870",
+      "name": "Send ALPACA notifications",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "R9ttQYZIC57ZoeJh",
+          "name": "Trader_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0545d05a-edad-42d7-b8d1-688bd7cefe61",
+              "name": "symbol",
+              "value": "={{ $json.symbol }}",
+              "type": "string"
+            },
+            {
+              "id": "bd1e61ca-1374-4c3f-9d6e-4e718454ece4",
+              "name": "sentiment",
+              "value": "={{ $json.sentiment }}",
+              "type": "object"
+            },
+            {
+              "id": "4ce3c6bc-56ff-4f62-afea-b3e266241e86",
+              "name": "model",
+              "value": "={{ $json.decision }}",
+              "type": "string"
+            },
+            {
+              "id": "d9516a02-3528-495c-a03e-5dd37de97dac",
+              "name": "basics",
+              "value": "={{ $json.basics }}",
+              "type": "object"
+            },
+            {
+              "id": "230ab3f7-869d-4410-831f-c1e9264a6751",
+              "name": "top_news",
+              "value": "={{ $json.top_news }}",
+              "type": "object"
+            },
+            {
+              "id": "2c47ba68-435d-4eaa-8e14-ac945fbebe73",
+              "name": "opportunity_score",
+              "value": "={{ $json.metrics.opportunity_score }}",
+              "type": "number"
+            },
+            {
+              "id": "8ec89e74-556a-4484-8bc2-41d920fd4ee3",
+              "name": "edge",
+              "value": "={{ $json.metrics.edge }}",
+              "type": "number"
+            },
+            {
+              "id": "6d9e8abd-4a81-42a0-b874-79ac55b10a32",
+              "name": "metrics.aligned_sentiment",
+              "value": "={{ $json.metrics.aligned_sentiment }}",
+              "type": "boolean"
+            },
+            {
+              "id": "1fa84c39-e6bd-4dfa-b9f0-fc1b986802da",
+              "name": "sentiment_confidence",
+              "value": "={{ $json.metrics.sentiment_confidence }}",
+              "type": "number"
+            },
+            {
+              "id": "92375733-18fd-40b8-824c-3b1893d511dd",
+              "name": "metrics.in_rth",
+              "value": "={{ $json.metrics.in_rth }}",
+              "type": "boolean"
+            },
+            {
+              "id": "64fabcb7-a0b2-4982-b956-c8d5806cf07a",
+              "name": "probs",
+              "value": "={{ $json.probs }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3600,
+        2976
+      ],
+      "id": "17a5a243-092a-423b-a89f-732d3e0cf482",
+      "name": "clean data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node — Alpaca payloads with short==sell (via intent:\"exit\")\n\nconst MIN_W  = 0.0005;\nconst BASE_W = 0.0010;\nconst MAX_W  = 0.0040;\n\nconst ALIGN_BUMP_FRAC = 0.02;\nconst ALIGN_CONF_MIN  = 0.90;\nconst ALIGN_CONF_MAX  = 0.99;\n\n// We accept either \"buy/hold/sell\" or \"long/short/queue_*\" upstream.\n// We will OUTPUT only \"long\" or \"short\".\nfunction readDecision(src) {\n  const raw = typeof src === \"string\" ? src : (src?.decision ?? \"\");\n  return String(raw).toLowerCase();\n}\nfunction toSide(dec) {\n  const d = String(dec).toLowerCase();\n  if (d.includes(\"sell\") || d.includes(\"short\")) return \"short\";\n  if (d.includes(\"buy\")  || d.includes(\"long\"))  return \"long\";\n  if (d.includes(\"queue_short\")) return \"short\";\n  if (d.includes(\"queue_long\"))  return \"long\";\n  return \"hold\";\n}\n\nconst num = (v, d = 0) => (v == null || Number.isNaN(+v) ? d : +v);\nconst get = (o, p, d=undefined) =>\n  p.split(\".\").reduce((a,k)=>(a && a[k]!==undefined)?a[k]:undefined, o) ?? d;\n\nconst rawScores = items.map(i => {\n  const j = i.json || {};\n  return num(j.metrics?.opportunity_score ?? j.opportunity_score, 0);\n});\nconst cap = Math.max(1000, ...rawScores);\n\nfunction relAlignedBump(conf) {\n  const t = Math.max(0, Math.min(1, (conf - ALIGN_CONF_MIN) / (ALIGN_CONF_MAX - ALIGN_CONF_MIN)));\n  return ALIGN_BUMP_FRAC * t * (MAX_W - BASE_W);\n}\nfunction weight(score, aligned, conf, volZ, staleSec) {\n  let w = BASE_W + (MAX_W - BASE_W) * Math.min(1, num(score, 0) / cap);\n  if (aligned && conf >= ALIGN_CONF_MIN) w += relAlignedBump(conf);\n  if (volZ >= 4) w *= 0.4;\n  else if (volZ >= 2) w *= 0.6;\n  if (staleSec > 6 * 3600) w *= 0.7;\n  return Math.max(MIN_W, Math.min(w, MAX_W));\n}\nfunction isRTH() {\n  const nyNow = new Date(new Date().toLocaleString(\"en-US\", { timeZone: \"America/New_York\" }));\n  const m = nyNow.getHours() * 60 + nyNow.getMinutes();\n  return m >= (9 * 60 + 30) && m < (16 * 60);\n}\n\nconst out = [];\nfor (const { json: j0 } of items) {\n  const j = j0 || {};\n  const symbol = String(j.symbol || \"\").toUpperCase();\n  if (!symbol) continue;\n\n  const decisionIn = readDecision(j.model ?? j);\n  const side = toSide(decisionIn); // \"long\" | \"short\" | \"hold\"\n\n  // Gate by upstream notify/change (default true if missing)\n  const change = (j.notify === true) ? true : (j.notify === false ? false : true);\n  if (!change || side === \"hold\") continue;\n\n  const score = num(j.metrics?.opportunity_score ?? j.opportunity_score, 0);\n  const aligned = !!(j.metrics?.aligned_sentiment ?? j.aligned_sentiment ?? false);\n  const sConf   = num(j.sentiment_confidence ?? get(j, \"sentiment.confidence\", null), 0);\n  const close_d = num(j.basics?.close_d, null);\n  const volZ    = num(j.vol_zscore_today, 0);\n  const stale   = num(j.stale_sec, 0);\n\n  const target_weight_pct = +weight(score, aligned, sConf, volZ, stale).toFixed(6);\n\n  // Key part: SHORT => intent:\"exit\" so the server submits SELL to close the position.\n  const intent = (side === \"short\") ? \"exit\" : \"accumulate\";\n\n  out.push({\n    json: {\n      symbol,\n      model: { decision: side },  // ← strictly \"long\" or \"short\"\n      change: true,\n      in_rth: isRTH(),\n      basics: { close_d },\n\n      intent,                     // ← \"exit\" forces SELL for short\n      opportunity_score: score,\n      aligned_sentiment: aligned,\n      sentiment_confidence: sConf,\n      vol_zscore_today: volZ,\n      stale_sec: stale,\n      target_weight_pct          // for \"long\"; ignored on exit path\n    }\n  });\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4208,
+        3200
+      ],
+      "id": "43f7a7c5-597c-40b9-836f-9822af014bb3",
+      "name": "Prepare data for trader"
+    },
+    {
+      "parameters": {
+        "content": "# Gather Basic Stock Data\n",
+        "height": 576,
+        "width": 624,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -624,
+        320
+      ],
+      "typeVersion": 1,
+      "id": "2507bab0-916a-46f8-81dc-0f46535ffbbc",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Clean, Combine and prepare basic Stock Data\n",
+        "height": 752,
+        "width": 1104,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        96,
+        288
+      ],
+      "typeVersion": 1,
+      "id": "b7931afb-b78c-4062-a1f5-098a9dea447e",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Gather and clean News Data",
+        "height": 1376,
+        "width": 1792,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        800,
+        1072
+      ],
+      "typeVersion": 1,
+      "id": "6c6ecbc3-04a3-41f4-b6f9-40a414688f4b",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "115176ed-c90b-4c9c-a1c8-ec3af302fe6d",
+              "name": "symbol",
+              "value": "={{ $json.symbol }}",
+              "type": "string"
+            },
+            {
+              "id": "6ad486fe-c201-4600-bdfc-d4d28f57753a",
+              "name": "currentPrice",
+              "value": "={{ $json.currentPrice }}",
+              "type": "number"
+            },
+            {
+              "id": "de6e91ec-0aa3-47ab-b766-cbf873801173",
+              "name": "previousClose",
+              "value": "={{ $json.previousClose }}",
+              "type": "number"
+            },
+            {
+              "id": "7e41874f-b16a-4a9f-b353-6f26314c3a49",
+              "name": "change",
+              "value": "={{ $json.change }}",
+              "type": "number"
+            },
+            {
+              "id": "b4776d97-71e1-4e2f-a698-d91c4d172ad0",
+              "name": "changePercent",
+              "value": "={{ $json.changePercent }}",
+              "type": "number"
+            },
+            {
+              "id": "1c30a061-a7d6-42fd-9cf6-52209fbe5523",
+              "name": "alertType",
+              "value": "={{ $json.alertType }}",
+              "type": "string"
+            },
+            {
+              "id": "2d5069fd-88dd-4642-91ea-be5f131322d0",
+              "name": "severity",
+              "value": "={{ $json.severity }}",
+              "type": "string"
+            },
+            {
+              "id": "ae377200-dae5-4ca8-8c3b-3ae136753d03",
+              "name": "high",
+              "value": "={{ $json.high }}",
+              "type": "number"
+            },
+            {
+              "id": "8fef6743-b0b3-4e33-899e-0e17eaab8cbf",
+              "name": "low",
+              "value": "={{ $json.low }}",
+              "type": "number"
+            },
+            {
+              "id": "d9381bde-2b62-4054-924b-29fdc0a2ec9a",
+              "name": "position_avg_entry",
+              "value": "={{ $json.position_avg_entry }}",
+              "type": "number"
+            },
+            {
+              "id": "6ae322bf-3293-40a8-a0e0-faf3fe4719ed",
+              "name": "position_unrealized_plpc",
+              "value": "={{ $json.position_unrealized_plpc }}",
+              "type": "number"
+            },
+            {
+              "id": "145d9f26-a4f0-4229-ad61-d3068b444b97",
+              "name": "position_market_price",
+              "value": "={{ $json.position_market_price }}",
+              "type": "number"
+            },
+            {
+              "id": "f3b61b25-0623-4546-880f-04a9d7a932af",
+              "name": "position_market_value",
+              "value": "={{ $json.position_market_value }}",
+              "type": "number"
+            },
+            {
+              "id": "82940571-8c07-4cf7-9bc9-d74136f02284",
+              "name": "position_unrealized_pl",
+              "value": "={{ $json.position_unrealized_pl }}",
+              "type": "number"
+            },
+            {
+              "id": "f9c18acd-1b17-4fba-bc90-5d2ab3fab3bd",
+              "name": "position_pnl_pct",
+              "value": "={{ $json.position_pnl_pct }}",
+              "type": "number"
+            },
+            {
+              "id": "42b81ff1-9bee-4c1e-91ac-1f28bc891e9e",
+              "name": "metric",
+              "value": "={{ $json.metric }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        880,
+        3104
+      ],
+      "id": "ca969e04-9138-4ce8-b79a-45ab2130112b",
+      "name": "Clean Metrics"
+    },
+    {
+      "parameters": {
+        "content": "# Gather Metrics\n",
+        "height": 480,
+        "width": 736
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -752,
+        1264
+      ],
+      "typeVersion": 1,
+      "id": "cdc8fb73-0a32-4c42-b7f8-fb2420a1c4ab",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "# CatBOOST",
+        "height": 528,
+        "width": 1120
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1312,
+        3312
+      ],
+      "typeVersion": 1,
+      "id": "c931aee2-47a3-4c7f-bd3b-bb61e592b836",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "# Sent-AI\n\n",
+        "height": 336,
+        "width": 416,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        256,
+        2368
+      ],
+      "typeVersion": 1,
+      "id": "27ccbfbb-75ce-4098-9da0-38865776f50c",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "# Trader Bot\n",
+        "height": 704,
+        "width": 704,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3760,
+        3136
+      ],
+      "typeVersion": 1,
+      "id": "52dfa94a-45cc-4da7-9b3e-28beae31637d",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code Node (JavaScript) — builds JSON for CatBoost \"infer\"\n// Updated: correct UTC vs local (-06:00) handling and session date from local (America/Costa_Rica)\n\n// -------- Helpers --------\nfunction toNum(val) {\n  const n = Number(val);\n  return Number.isFinite(n) ? n : null;\n}\nfunction round(val, decimals = 2) {\n  const n = toNum(val);\n  return n === null ? null : Number(n.toFixed(decimals));\n}\nfunction ratio(x, y, decimals = 2) {\n  const nx = toNum(x), ny = toNum(y);\n  if (nx === null || ny === null || ny === 0) return null;\n  return round(nx / ny, decimals); // ratio, not (x/y - 1)\n}\nfunction toEpochMs(v) {\n  if (v == null) return null;\n  if (typeof v === \"number\") return v < 1e12 ? v * 1000 : v;\n  if (typeof v === \"string\") {\n    const s = v.trim();\n    if (!s) return null;\n    if (/^-?\\d+(\\.\\d+)?$/.test(s)) {\n      const num = Number(s);\n      return num < 1e12 ? num * 1000 : num;\n    }\n    const t = Date.parse(s);\n    return Number.isFinite(t) ? t : null;\n  }\n  return null;\n}\n\n// ---- Timezone-safe \"now\" helpers ----\nconst TZ = \"America/Costa_Rica\";\n\nfunction nowUtcIsoSec(d = new Date()) {\n  // \"YYYY-MM-DDTHH:MM:SSZ\" (no milliseconds)\n  return new Date(d.getTime()).toISOString().split(\".\")[0] + \"Z\";\n}\n\nfunction localIsoWithOffset(tz = TZ, d = new Date()) {\n  // Build local \"YYYY-MM-DDTHH:MM:SS±HH:MM\" using Intl\n  const parts = new Intl.DateTimeFormat(\"en-CA\", {\n    timeZone: tz,\n    year: \"numeric\",\n    month: \"2-digit\",\n    day: \"2-digit\",\n    hour: \"2-digit\",\n    minute: \"2-digit\",\n    second: \"2-digit\",\n    hour12: false\n  }).formatToParts(d);\n\n  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));\n  const y = Number(map.year);\n  const m = Number(map.month);\n  const day = Number(map.day);\n  const hh = Number(map.hour);\n  const mm = Number(map.minute);\n  const ss = Number(map.second);\n\n  // Compute numeric UTC offset in minutes for the given TZ at time d\n  const asIfUTCms = Date.UTC(y, m - 1, day, hh, mm, ss);\n  const offsetMin = Math.round((asIfUTCms - d.getTime()) / 60000); // positive if TZ ahead of UTC\n  const sign = offsetMin >= 0 ? \"+\" : \"-\";\n  const absMin = Math.abs(offsetMin);\n  const offH = String(Math.floor(absMin / 60)).padStart(2, \"0\");\n  const offM = String(absMin % 60).padStart(2, \"0\");\n  const offsetStr = `${sign}${offH}:${offM}`;\n\n  const yyyy = String(y);\n  const MM = String(m).padStart(2, \"0\");\n  const DD = String(day).padStart(2, \"0\");\n  const HH = String(hh).padStart(2, \"0\");\n  const MI = String(mm).padStart(2, \"0\");\n  const SS = String(ss).padStart(2, \"0\");\n\n  return `${yyyy}-${MM}-${DD}T${HH}:${MI}:${SS}${offsetStr}`;\n}\n\nfunction sessionFromLocalIso(localIso) {\n  return (localIso || \"\").slice(0, 10); // YYYY-MM-DD from local\n}\n\nconst last = arr => (Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null);\n\n// Accept many possible key names for quotes (direct objects)\nfunction pickQuote(obj) {\n  const o = obj || {};\n  const c  = o.c  ?? o.close ?? o.last ?? o.price ?? o.close_d;\n  const pc = o.pc ?? o.prevClose ?? o.previousClose ?? o.prev_close ?? o.previous_close;\n  return { c: toNum(c), pc: toNum(pc) };\n}\n\n// Parse Yahoo Finance \"chart\" payload (supports meta-only or with indicators)\nfunction extractYahooQuote(chartJson) {\n  try {\n    const res = chartJson?.chart?.result?.[0];\n    if (!res) return { c: null, pc: null };\n    const meta = res.meta || {};\n    const pc = toNum(meta.chartPreviousClose);\n    const closes = res.indicators?.quote?.[0]?.close || [];\n    const sessionClose = toNum(last(closes));\n    const rmp = toNum(meta.regularMarketPrice);\n    const c = sessionClose ?? rmp ?? null;\n    return { c, pc };\n  } catch {\n    return { c: null, pc: null };\n  }\n}\n\n// Convert a *meta* block (like SPY_data/ETF_data) to {c, pc}\nfunction metaToQuote(meta) {\n  if (!meta) return { c: null, pc: null };\n  return {\n    c: toNum(meta.regularMarketPrice),\n    pc: toNum(meta.chartPreviousClose),\n  };\n}\n\n// Convert 0 -> null (used for news features only)\nfunction zeroToNull(val) {\n  const n = toNum(val);\n  if (n === null) return null;\n  return n === 0 ? null : n;\n}\n\n// -------- Input --------\nconst payload = Array.isArray($json) ? $json[0] : $json;\nconst input = payload || {};\nconst finbert = input.finbert || input; // support either {finbert:{...}} or flat\n\n// Compute timestamps once\nconst asofUtcIso = nowUtcIsoSec();            // e.g., 2025-08-28T03:26:51Z\nconst asofLocalIso = localIsoWithOffset(TZ);  // e.g., 2025-08-27T21:26:51-06:00\nconst session = sessionFromLocalIso(asofLocalIso);\n\n// If you also receive an 'asof' from sources, you can override the above by parsing it similarly.\n// For now we treat \"now\" as authoritative for infer requests.\nconst nowEpoch = Date.parse(asofUtcIso);\n\n// Pull metric once\nconst m = input.metric || {};\n\n// -------- News features (prefer FinBERT outputs if present) --------\nlet news_cov_60m = (finbert.news_cov_60m == null) ? null : zeroToNull(finbert.news_cov_60m);\nlet news_sent_mean_60m = (finbert.news_sent_mean_60m == null) ? null : zeroToNull(finbert.news_sent_mean_60m);\nlet news_age_min = (finbert.news_age_min == null) ? null : zeroToNull(finbert.news_age_min);\n\n// Fallback for news_age_min\nif (news_age_min == null && Array.isArray(finbert.articles_scored) && finbert.articles_scored.length) {\n  const epochs = finbert.articles_scored\n    .map(a => toEpochMs(a.datetime_epoch ?? a.datetime))\n    .filter(e => e != null);\n  if (epochs.length) {\n    const latest = Math.max(...epochs);\n    const mins = Math.floor((nowEpoch - latest) / 60000);\n    news_age_min = mins === 0 ? null : mins;\n  }\n}\n\n// Optional extra 24h stats from FinBERT (if present)\nconst news_uniqueness_24h = (finbert.news_uniqueness_24h !== undefined)\n  ? zeroToNull(finbert.news_uniqueness_24h)\n  : null;\nconst news_sent_std_24h = (finbert.news_sent_std_24h !== undefined)\n  ? zeroToNull(finbert.news_sent_std_24h)\n  : null;\n\n// -------- Market / Sector quotes --------\nconst spyFromMeta   = metaToQuote(input.SPY_data);\nconst xlvFromMeta   = metaToQuote(input.ETF_data);\n\nconst spyDirect     = pickQuote(input.spy || input.market || input.mkt || input.SPY);\nconst spyFromYahoo  = extractYahooQuote(input.chart || input.spy_chart || input.spyChart || {});\n\nconst xlvDirect     = pickQuote(input.xlv || input.sector_quote || input.XLV || input.etf_quote);\nconst xlvFromYahoo  = extractYahooQuote(input.xlv_chart || input.xlvChart || {});\n\nconst spyQ = {\n  c:  spyFromMeta.c  ?? spyDirect.c  ?? spyFromYahoo.c,\n  pc: spyFromMeta.pc ?? spyDirect.pc ?? spyFromYahoo.pc,\n};\nconst xlvQ = {\n  c:  xlvFromMeta.c  ?? xlvDirect.c  ?? xlvFromYahoo.c,\n  pc: xlvFromMeta.pc ?? xlvDirect.pc ?? xlvFromYahoo.pc,\n};\n\nconst mkt_ret_1d = ratio(spyQ.c, spyQ.pc, 4);\nconst sector_ret_1d = ratio(xlvQ.c, xlvQ.pc, 4);\nconst rel_sector_vs_mkt = (mkt_ret_1d != null && sector_ret_1d != null)\n  ? round(sector_ret_1d - mkt_ret_1d, 4)\n  : null;\n\n// -------- Build row --------\nconst row = {\n  symbol: input.symbol,\n\n  // Time fields (UTC vs local)\n  asof_utc: asofUtcIso,           // e.g., 2025-08-28T03:26:51Z\n  asof_local: asofLocalIso,       // e.g., 2025-08-27T21:26:51-06:00\n  session: session,               // derived from local date: \"YYYY-MM-DD\"\n\n  // Prices & returns\n  close_d: toNum(input.currentPrice),\n  ret_1d: ratio(input.currentPrice, input.previousClose, 2),\n  ret_5d: (m[\"5DayPriceReturnDaily\"] !== undefined)\n    ? round(1 + (toNum(m[\"5DayPriceReturnDaily\"]) / 100), 2)\n    : null,\n\n  high_d: toNum(input.high),\n  low_d: toNum(input.low),\n\n  // Risk/vol\n  beta_60d: (m.beta !== undefined) ? round(m.beta, 3) : null,\n\n  // Market / Sector context\n  mkt_etf: input.mkt_etf || \"SPY\",\n  mkt_ret_1d: mkt_ret_1d,\n  sector_etf: input.etf,\n  sector_ret_1d: sector_ret_1d,\n  rel_sector_vs_mkt: rel_sector_vs_mkt,\n\n  // News features\n  news_cov_60m,\n  news_sent_mean_60m,\n  news_uniqueness_24h,\n  news_sent_std_24h,\n  news_age_min,\n\n  // Technicals (populate later if you compute in-pipeline)\n  rsi_14: null,\n  macd_line: null,\n  macd_signal: null,\n  macd_hist: null,\n  dist_vwap_bps: null,\n\n  // Volume\n  log_volume: (m[\"10DayAverageTradingVolume\"] !== undefined)\n    ? (() => {\n        const v = toNum(m[\"10DayAverageTradingVolume\"]);\n        return (v && v > 0) ? round(Math.log(v), 6) : null;\n      })()\n    : null,\n\n  // Extra signals\n  chg_pct_d: (input.changePercent !== undefined) ? round(input.changePercent, 2) : null,\n  dist_to_52w_high_pct: (m[\"52WeekHigh\"] !== undefined && input.currentPrice !== undefined)\n    ? round(((toNum(input.currentPrice) / toNum(m[\"52WeekHigh\"])) - 1) * 100, 2)\n    : null,\n  dist_to_52w_low_pct: (m[\"52WeekLow\"] !== undefined && input.currentPrice !== undefined)\n    ? round(((toNum(input.currentPrice) / toNum(m[\"52WeekLow\"])) - 1) * 100, 2)\n    : null,\n  ytd_ret_ratio: (m[\"yearToDatePriceReturnDaily\"] !== undefined)\n    ? round(1 + (toNum(m[\"yearToDatePriceReturnDaily\"]) / 100), 2)\n    : null,\n  price_rel_spx_13w_pct: (m[\"priceRelativeToS&P50013Week\"] !== undefined)\n    ? round(m[\"priceRelativeToS&P50013Week\"], 2)\n    : null,\n\n  // Metadata\n  sector: input.sector || null,\n  industry: input.industry || null,\n  exchange: input.exchange || null,\n  alertType: input.alertType || null,\n  severity: input.severity || null\n};\n\n// -------- Output --------\nreturn {\n  mode: \"infer\",\n  schema_version: 1,\n  rows: [row]\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        3536
+      ],
+      "id": "56e69f60-59a6-45a9-b80e-11a7dc30f2c6",
+      "name": "Prepare Data For Catboost"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn all incoming items into ONE item with a field `payload` = array\nconst arr = $input.all().map(i => i.json);\nreturn [{ json: { payload: arr } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        3536
+      ],
+      "id": "8bf0ad05-d94e-4f8f-8908-7892436fa8c3",
+      "name": "Single Payload"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.results[0].title }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notExists",
+                      "singleValue": true
+                    },
+                    "id": "7e062f73-8650-4632-af84-3abbcb1be831"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Fail"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "6d343f48-2b48-4547-9966-6a8117e986a7",
+                    "leftValue": "={{ $json.results[0].title }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "exists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Sucess"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1760,
+        1712
+      ],
+      "id": "10810176-c8f7-4ded-87b6-fb808797752b",
+      "name": "Got News?"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -48,
+        2752
+      ],
+      "id": "0f4421d3-da74-4c3b-960b-a517e6888d4f",
+      "name": "FinBERT Sentiment + No news Stocks",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "symbol",
+        "joinMode": "enrichInput2",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2896,
+        2976
+      ],
+      "id": "b599852c-9e63-4ee7-b17e-7c4e57f2f168",
+      "name": "Re attach News"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sentiment-api.aarch.shop/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        2496
+      ],
+      "id": "b70d1c46-cb78-4ae7-a181-209a6da33f4c",
+      "name": "AI_Sent_An",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "r5h8ZocSdtWgte2I",
+          "name": "Ai_Sent_an"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8001/score_batch",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        3536
+      ],
+      "id": "9a45e323-fb3c-4e59-b79e-7155eba2faf8",
+      "name": "CatBoost_Intraday"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node — unified decisions (RTH/OOH) + sectorless priority + no caps\n\nconst cfg = {\n  // Regular Trading Hours gates (apply to everyone)\n  rth: {\n    maxStaleSec: 120,        // snapshot staleness gate (seconds)\n    minMinuteOfDay: 0.05,    // optional if you pass minute% in the future\n    maxMinuteOfDay: 0.98,\n    maxDistVWAPbps: 50,\n    maxRv30m: 0.006,\n    minVolZ: -0.5,\n    minMargin: 0.12,         // min edge to take long/short during RTH\n  },\n  // Out-Of-Hours staging (watchlist / queue)\n  ooh: {\n    enable: true,\n    minMargin: 0.15,         // min edge to queue_long/queue_short\n    minAbsDailyMovePct: 2.0, // require some daily move unless null\n    maxFreshHours: 12,\n    allowAlerts: [\"surge\",\"drop\",\"position\"], // include \"position\" so portfolio names can queue\n    topN: 0,                 // 0 = no capping; pass all\n    // Only used to boost priority; *does not* change the decision itself\n    severityWeight: { low:1.00, medium:1.10, high:1.20, portfolio:1.30 },\n  }\n};\n\n// ---------- helpers ----------\nfunction nyNow() {\n  const parts = new Intl.DateTimeFormat('en-US', {\n    timeZone: 'America/New_York',\n    hour12: false,\n    year: 'numeric', month: '2-digit', day: '2-digit',\n    hour: '2-digit', minute: '2-digit', weekday: 'short',\n  }).formatToParts(new Date());\n  const d = Object.fromEntries(parts.map(p => [p.type, p.value]));\n  const dowMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };\n  return { y:+d.year, m:+d.month, dd:+d.day, hh:+d.hour, mm:+d.minute, dow:dowMap[d.weekday] ?? null };\n}\n\nfunction isNYSEOpenNow() {\n  const n = nyNow();\n  if (n.dow === 0 || n.dow === 6) return false;        // weekend\n  const mins = n.hh * 60 + n.mm;\n  return mins >= (9*60+30) && mins < (16*60);          // 09:30–16:00 NY\n}\n\nfunction nextOpenNY() {\n  const n = nyNow();\n  const afterClose = (n.hh > 16) || (n.hh === 16 && n.mm >= 0);\n\n  function addDay(y,m,d){\n    const t=new Date(Date.UTC(y,m-1,d,12,0,0));\n    t.setUTCDate(t.getUTCDate()+1);\n    return { y:t.getUTCFullYear(), m:t.getUTCMonth()+1, d:t.getUTCDate() };\n  }\n  function nyDow(y,m,d){\n    const parts = new Intl.DateTimeFormat('en-US', {\n      timeZone: 'America/New_York', weekday:'short', year:'numeric', month:'2-digit', day:'2-digit'\n    }).formatToParts(new Date(Date.UTC(y, m-1, d, 12, 0, 0)));\n    const dict = Object.fromEntries(parts.map(p => [p.type, p.value]));\n    const map = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };\n    return map[dict.weekday] ?? null;\n  }\n\n  let y=nyNow().y, m=nyNow().m, d=nyNow().dd, dow=nyNow().dow;\n  if (afterClose){ ({y,m,d}=addDay(y,m,d)); dow=nyDow(y,m,d); }\n  while (dow===0 || dow===6){ ({y,m,d}=addDay(y,m,d)); dow=nyDow(y,m,d); }\n\n  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}T09:30:00`;\n}\n\nconst num = v => (typeof v === 'number' && Number.isFinite(v)) ? v\n  : (typeof v === 'string' && v.trim()!=='' && Number.isFinite(+v)) ? +v : null;\n\n// ---------- main ----------\nconst body = $json;\nconst payload = Array.isArray(body) ? (body[0] ?? {}) : body;\nconst rows = payload.rows ?? body ?? []; // supports: [{...}] or {rows:[...]} or plain array\nconst inRTH = isNYSEOpenNow();\n\nconst out = [];\n\nfor (const r of rows) {\n  const h = r.hydrated || {};\n  const sym = r.symbol || h.symbol || \"?\";\n\n  // predictions (may be missing)\n  const pr = r.prediction || {};\n  const pUp = num(pr.p_up ?? pr.up);\n  const pDn = num(pr.p_down ?? pr.down);\n  const pFl = num(pr.p_flat ?? pr.flat);\n  const havePred = (pUp!=null && pDn!=null && pFl!=null);\n\n  // margins from probs (nullable)\n  const mUp = havePred ? (pUp - Math.max(pDn, pFl)) : null;\n  const mDn = havePred ? (pDn - Math.max(pUp, pFl)) : null;\n\n  // daily basics we actually use\n  const closeD = num(h.close_d);\n  const pctD   = num(h.chg_pct_d);\n\n  // intraday features (often null in OOH — gates tolerate nulls)\n  const vwapBps = num(h.dist_vwap_bps);\n  const rv30    = num(h.rv_30m);\n  const volZ    = num(h.vol_zscore_today);\n  const minutePct = null; // not present in your payload (future: pass if available)\n\n  // freshness\n  const latestTs = r.freshness?.latest_ts_utc ?? r.ts ?? h.asof_utc ?? null;\n  const ageHours = (() => {\n    if (!latestTs) return null;\n    const now = new Date();\n    const t = new Date(latestTs);\n    const ms = now.getTime() - t.getTime();\n    return ms/3600000;\n  })();\n\n  // severity just for metadata/priority weighting (does not change decision)\n  const sevRaw = (h.severity ?? r.severity ?? \"\").toString().toLowerCase();\n  const isPortfolio = sevRaw === \"portfolio\";\n\n  let decision = \"hold\";\n  const reasons = [];\n\n  if (inRTH) {\n    // -------- one unified RTH flow --------\n    const modOK   = (minutePct==null) ? true : (minutePct>=cfg.rth.minMinuteOfDay && minutePct<=cfg.rth.maxMinuteOfDay);\n    const vwapOK  = (vwapBps==null)   ? true : (Math.abs(vwapBps)<=cfg.rth.maxDistVWAPbps);\n    const rvOK    = (rv30==null)      ? true : (rv30<=cfg.rth.maxRv30m);\n    const volOK   = (volZ==null)      ? true : (volZ>=cfg.rth.minVolZ);\n    const staleOK = (ageHours==null)  ? true : (ageHours*3600 <= cfg.rth.maxStaleSec);\n\n    if (!(modOK && vwapOK && rvOK && volOK && staleOK && havePred)) {\n      if (!modOK)   reasons.push(\"minute_gate\");\n      if (!vwapOK)  reasons.push(\"away_from_VWAP\");\n      if (!rvOK)    reasons.push(\"high_intraday_vol\");\n      if (!volOK)   reasons.push(\"low_volume\");\n      if (!staleOK) reasons.push(\"stale_data\");\n      if (!havePred) reasons.push(\"missing_prediction\");\n      decision = \"hold\";\n    } else {\n      if (mUp >= cfg.rth.minMargin)      decision = \"long\";\n      else if (mDn >= cfg.rth.minMargin) decision = \"short\";\n      else { decision = \"hold\"; reasons.push(\"low_edge\"); }\n    }\n  } else {\n    // -------- unified OOH staging --------\n    reasons.push(\"not_in_RTH\");\n\n    if (cfg.ooh.enable) {\n      const edgeOK  = havePred ? ((mUp >= cfg.ooh.minMargin) || (mDn >= cfg.ooh.minMargin)) : false;\n      const moveOK  = (pctD==null) ? true : (Math.abs(pctD) >= cfg.ooh.minAbsDailyMovePct);\n      const freshOK = (ageHours==null) ? true : (ageHours <= cfg.ooh.maxFreshHours);\n      const alert   = (h.alertType ?? \"\").toString().toLowerCase();\n      const alertOK = (cfg.ooh.allowAlerts.length===0) ? true : cfg.ooh.allowAlerts.includes(alert);\n\n      if (edgeOK && moveOK && freshOK && alertOK) {\n        if (mUp >= cfg.ooh.minMargin)      decision = \"queue_long\";\n        else if (mDn >= cfg.ooh.minMargin) decision = \"queue_short\";\n        else decision = \"hold\";\n      } else {\n        if (!edgeOK)  reasons.push(havePred ? \"low_edge\" : \"missing_prediction\");\n        if (!moveOK)  reasons.push(\"small_daily_move\");\n        if (!freshOK) reasons.push(\"stale_snapshot\");\n        if (!alertOK) reasons.push(\"alert_filter\");\n        decision = \"hold\";\n      }\n    }\n  }\n\n  // Optional: tag that it’s part of the live portfolio (for observability only)\n  if (isPortfolio) reasons.push(\"portfolio_position\");\n\n  // ---------- sectorless priority ----------\n  // Priority is *only* for ordering; it doesn't change decisions.\n  // Prefer the request's own margin if present; else compute from probs.\n  let priority = null;\n  if ([\"long\",\"short\",\"queue_long\",\"queue_short\"].includes(decision)) {\n    const sevW = cfg.ooh.severityWeight[sevRaw || \"medium\"] ?? 1.0;\n\n    const edgeFromPayload = num(r.margin);                    // your payload has margin\n    const edgeFromProbs = decision.includes(\"short\") ? (mDn ?? 0) : (mUp ?? 0);\n    const edge = (edgeFromPayload != null) ? edgeFromPayload : edgeFromProbs;\n\n    priority = edge * sevW;\n  }\n\n  // probs payload for downstream clarity\n  const probs = havePred\n    ? { p_up:pUp, p_down:pDn, p_flat:pFl, margin_up:mUp, margin_down:mDn }\n    : null;\n\n  out.push({\n    json: {\n      symbol: sym,\n      decision,\n      reasons,\n      probs,\n      basics: {\n        close_d: closeD, chg_pct_d: pctD,\n        high_d: h.high_d ?? null, low_d: h.low_d ?? null,\n        alertType: h.alertType ?? null, severity: h.severity ?? (isPortfolio ? \"portfolio\" : null)\n      },\n      freshness: {\n        latest_ts_utc: latestTs, age_hours: ageHours,\n        in_rth: inRTH, queue_until_ny_open: inRTH ? null : nextOpenNY()\n      },\n      priority\n    }\n  });\n}\n\n// No cap/sort — emit one item per input row\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        3504
+      ],
+      "id": "40410e54-22c1-46af-8d24-53d52fb1e793",
+      "name": "decisions with RTH vs OOH staging + basic metrics 1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node (JavaScript) — one item per symbol from `results`\n\nfunction coerce(val) {\n  if (typeof val === 'string') {\n    try { return JSON.parse(val); } catch { /* ignore */ }\n  }\n  return val;\n}\n\nfunction extractResults(obj) {\n  if (!obj || typeof obj !== 'object') return [];\n  if (Array.isArray(obj.results)) return obj.results;\n\n  // Look inside common wrappers\n  for (const k of ['data', 'payload', 'body', 'response']) {\n    const v = coerce(obj[k]);\n    if (v && typeof v === 'object' && Array.isArray(v.results)) return v.results;\n    if (Array.isArray(v)) {\n      const hit = v.find(x => x && typeof x === 'object' && Array.isArray(x.results));\n      if (hit) return hit.results;\n    }\n  }\n  return [];\n}\n\nconst allItems = await $input.all();\nlet bag = [];\n\nfor (const it of allItems) {\n  const root = coerce(it.json);\n\n  if (Array.isArray(root)) {\n    // e.g. your sample: find the element that contains .results\n    const hit = root.find(x => x && typeof x === 'object' && Array.isArray(x.results));\n    if (hit) bag = bag.concat(hit.results);\n  } else if (root && typeof root === 'object') {\n    bag = bag.concat(extractResults(root));\n  } else if (typeof it.json === 'string') {\n    const parsed = coerce(it.json);\n    if (parsed) {\n      if (Array.isArray(parsed)) {\n        const hit = parsed.find(x => x && typeof x === 'object' && Array.isArray(x.results));\n        if (hit) bag = bag.concat(hit.results);\n      } else if (parsed && typeof parsed === 'object') {\n        bag = bag.concat(extractResults(parsed));\n      }\n    }\n  }\n}\n\nif (!bag.length) {\n  return [{ json: { error: \"No `results` array found in input.\" } }];\n}\n\n// >>> one item per symbol <<<\nreturn bag.map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        2752
+      ],
+      "id": "9f8598ee-a739-421d-9e8b-855eab63f4ed",
+      "name": "Parse News Data"
+    },
+    {
+      "parameters": {
+        "url": "https://trader.aarch.shop/get_positions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        176,
+        432
+      ],
+      "id": "1b222dce-dfbd-4739-a6c9-32a6f255f1c9",
+      "name": "get_positions",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "R9ttQYZIC57ZoeJh",
+          "name": "Trader_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "symbol",
+        "joinMode": "keepEverything",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        752,
+        528
+      ],
+      "id": "bbde70a7-2ba1-4610-8a84-9eb8d7486531",
+      "name": "Merge4"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "symbol",
+        "joinMode": "enrichInput1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2208,
+        3072
+      ],
+      "id": "beb03951-104a-4b0b-8622-5b68503b9257",
+      "name": "Merge5"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "090f5482-0a8d-40f2-a0bc-f4e678a3433a",
+              "name": "symbol",
+              "value": "={{ $json.symbol }}",
+              "type": "string"
+            },
+            {
+              "id": "af4b6043-0c40-429e-b05a-b00b8e0347ac",
+              "name": "position_avg_entry",
+              "value": "={{ $json.position_avg_entry }}",
+              "type": "number"
+            },
+            {
+              "id": "8c031734-131d-4aab-8d1a-26e7eb958c81",
+              "name": "position_unrealized_plpc",
+              "value": "={{ $json.position_unrealized_plpc }}",
+              "type": "number"
+            },
+            {
+              "id": "fb203b91-e068-4f62-9900-3b52472ef73f",
+              "name": "position_market_price",
+              "value": "={{ $json.position_market_price }}",
+              "type": "number"
+            },
+            {
+              "id": "fbbb56a4-619d-4ba8-a39a-1e07620e63df",
+              "name": "position_market_value",
+              "value": "={{ $json.position_market_value }}",
+              "type": "number"
+            },
+            {
+              "id": "6b96e0b7-5ea4-4a85-bf6c-a7e96db62a0b",
+              "name": "position_unrealized_pl",
+              "value": "={{ $json.position_unrealized_pl }}",
+              "type": "number"
+            },
+            {
+              "id": "cf41ff57-fba2-41b5-9cde-13ab5d20be47",
+              "name": "position_pnl_pct",
+              "value": "={{ $json.position_pnl_pct }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1536,
+        3104
+      ],
+      "id": "da568dd0-215a-428f-b9df-a8003f2ba7d8",
+      "name": "Stop loss data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node — Alpaca-safe decisions (no actual shorts), SL-based exits, add-on buys\n\nconst cfg = {\n  risk: {\n    slAbs: 0.05,          // 5% stop loss\n    tpAbs: 0.10,          // (kept for risk block; not used to force exits)\n    addMoreDrawdown: -0.03, // add if plpc ≤ -3% (helps average down)\n    minEdgeToAdd: 0.20,     // need margin_up ≥ 0.20 to add\n  },\n  behavior: {\n    smallPnlHoldPct: 0.004, // ±0.4% PnL → keep HOLD unless explicit buy\n    allowAddWithoutDrawdown: true, // if model says buy, allow add even w/o drawdown\n  }\n};\n\n// ---------- helpers ----------\nconst num = v => (typeof v === 'number' && Number.isFinite(v)) ? v\n  : (typeof v === 'string' && v.trim()!=='' && Number.isFinite(+v)) ? +v : null;\n\nfunction inferSide(item) {\n  const s = (item.position_side ?? item.side ?? \"\").toString().toLowerCase();\n  if (s === \"long\" || s === \"short\") return s;\n  const dec = (item.decision ?? \"\").toLowerCase();\n  if (dec.includes(\"queue_short\") || dec.includes(\"short\")) return \"short\";\n  return \"long\";\n}\n\nfunction computeMark(entry, plpc, markNow) {\n  const m = num(markNow);\n  if (m != null) return m;\n  return (num(entry)!=null && num(plpc)!=null) ? entry * (1 + plpc) : null;\n}\n\n// ---------- intake ----------\nconst items = $input.all();\nconst rows = [];\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) rows.push(...j);\n  else if (j && Array.isArray(j.rows)) rows.push(...j.rows);\n  else if (j && typeof j === 'object') rows.push(j);\n}\nif (rows.length === 0) {\n  const j = $json;\n  if (Array.isArray(j)) rows.push(...j);\n  else if (j && Array.isArray(j.rows)) rows.push(...j.rows);\n  else if (j && typeof j === 'object') rows.push(j);\n}\n\nconst out = [];\n\nfor (const r of rows) {\n  const basics = r.basics ?? r.hydrated ?? {};\n  const severityRaw = (basics.severity ?? r.severity ?? \"\").toString().toLowerCase();\n  const isPortfolio = severityRaw === \"portfolio\" || (num(r.position_qty) ?? 0) > 0;\n\n  const entry = num(r.position_avg_entry);\n  const plpc  = num(r.position_unrealized_plpc);   // +0.08 = +8%\n  const mark  = computeMark(entry, plpc, r.position_market_price);\n\n  const mUp   = num(r.probs?.margin_up);\n  const mDn   = num(r.probs?.margin_down);\n\n  // Incoming intent flags\n  const inDec = (r.decision ?? \"hold\").toLowerCase();\n  const modelBuy  = /buy|queue_long|long/.test(inDec);\n  const modelShort= /short/.test(inDec);\n\n  // Risk prices\n  const slPrice = (entry!=null) ? entry * (1 - cfg.risk.slAbs) : null;\n  const tpPrice = (entry!=null) ? entry * (1 + cfg.risk.tpAbs) : null;\n\n  // Stop triggered? (long-only book; shorts are informational)\n  let stopTriggered = false;\n  if (entry!=null && mark!=null) {\n    stopTriggered = mark <= slPrice; // for a long book\n  }\n\n  // ---------- DECISION LOGIC (only \"buy\" | \"sell\" | \"hold\") ----------\n  let decision = \"hold\";\n  const reasons = Array.isArray(r.reasons) ? [...r.reasons] : [];\n\n  // 1) If holding a position:\n  if (isPortfolio) {\n    // a) Hard stop — SELL when SL is hit\n    if (stopTriggered) {\n      decision = \"sell\";\n      reasons.push(\"stop_loss_triggered\");\n    } else {\n      // b) Shorts are used only as SELL indicators when SL is hit; otherwise ignore -> hold\n      if (modelShort) {\n        decision = \"hold\";\n        reasons.push(\"short_signal_ignored_no_shorts\");\n      }\n\n      // c) If model says BUY → allow add\n      if (modelBuy && decision !== \"sell\") {\n        const drawdownOK = (plpc!=null && plpc <= cfg.risk.addMoreDrawdown);\n        const edgeOK = (mUp!=null && mUp >= cfg.risk.minEdgeToAdd);\n        if (cfg.behavior.allowAddWithoutDrawdown) {\n          // Always allow add on explicit BUY; still record telem\n          decision = \"buy\";\n          if (drawdownOK) reasons.push(\"drawdown_threshold\");\n          if (edgeOK) reasons.push(\"model_edge_ok\");\n          reasons.push(\"add_on_buy_signal\");\n        } else if (drawdownOK && edgeOK) {\n          decision = \"buy\";\n          reasons.push(\"drawdown_threshold\",\"model_edge_ok\",\"add_on_buy_signal\");\n        } else {\n          reasons.push(\"buy_signal_but_add_conditions_not_met\");\n        }\n      }\n\n      // d) If tiny PnL and no explicit buy, keep HOLD to avoid churn\n      if (decision === \"hold\" && plpc != null && Math.abs(plpc) <= cfg.behavior.smallPnlHoldPct) {\n        reasons.push(\"small_pnl_hold\");\n      }\n    }\n  } else {\n    // 2) No position yet:\n    if (modelBuy) {\n      decision = \"buy\"; // enter\n      reasons.push(\"enter_on_buy_signal\");\n    } else {\n      // ignore shorts completely when flat\n      decision = \"hold\";\n      if (modelShort) reasons.push(\"short_signal_ignored_flat\");\n      // optional: small pnl hold doesn't apply when flat\n    }\n  }\n\n  // Build risk block for visibility\n  const risk = {\n    entry_price: entry,\n    mark_price: mark,\n    plpc,\n    stop_loss: { pct_abs: cfg.risk.slAbs, price: slPrice, triggered: !!stopTriggered },\n    take_profit: { pct_abs: cfg.risk.tpAbs, price: tpPrice, triggered: (entry!=null && mark!=null) ? (mark >= tpPrice) : false },\n    add_more_hint: {\n      drawdown_ok: (plpc!=null && plpc <= cfg.risk.addMoreDrawdown) || false,\n      edge_ok: (mUp!=null && mUp >= cfg.risk.minEdgeToAdd) || false,\n      min_edge: cfg.risk.minEdgeToAdd\n    }\n  };\n\n  out.push({ json: { ...r, decision, reasons, risk } });\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2496,
+        3072
+      ],
+      "id": "ac6c41d6-092f-40d5-95d3-7e82741d5b58",
+      "name": "Stop Loss calc"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract symbols from positions response\nconst positionsData = $input.first().json;\n\nif (!positionsData?.ok || !Array.isArray(positionsData.positions)) {\n  return [];\n}\n\n// Flatten to one item per position (merge by \"symbol\" later)\nconst out = positionsData.positions.map(pos => {\n  const avg = Number(pos.avg_entry ?? 0);\n  const mkt = Number(pos.market_price ?? 0);\n  return {\n    json: {\n      symbol: String(pos.symbol || '').toUpperCase(),\n      has_position: true,\n      position_qty: Number(pos.qty ?? 0),\n      position_avg_entry: avg,\n      position_market_price: mkt,\n      position_market_value: Number(pos.market_value ?? 0),\n      position_unrealized_pl: Number(pos.unrealized_pl ?? 0),\n      position_unrealized_plpc: Number(pos.unrealized_plpc ?? 0),\n      position_pnl_pct: (avg ? ((mkt / avg) - 1) * 100 : null),\n    }\n  };\n});\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        432
+      ],
+      "id": "a34303a8-0ff7-4c6e-bfb4-088d18d56190",
+      "name": "Clean Portfolio Data"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 14 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "b9f51c32-e84b-4ead-a6fa-ac4b52455f3c",
+      "name": "Stock Notification1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        688,
+        0
+      ],
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "url": "https://trader.aarch.shop/get_positions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1056,
+        0
+      ],
+      "id": "fe63c8e5-1b0b-4cd4-a5a6-67b2a7be726b",
+      "name": "get_positions1",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "R9ttQYZIC57ZoeJh",
+          "name": "Trader_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract symbols from positions response\nconst positionsData = $input.first().json;\n\nif (!positionsData?.ok || !Array.isArray(positionsData.positions)) {\n  return [];\n}\n\n// Flatten to one item per position (merge by \"symbol\" later)\nconst out = positionsData.positions.map(pos => {\n  const avg = Number(pos.avg_entry ?? 0);\n  const mkt = Number(pos.market_price ?? 0);\n  return {\n    json: {\n      symbol: String(pos.symbol || '').toUpperCase(),\n      has_position: true,\n      position_qty: Number(pos.qty ?? 0),\n      position_avg_entry: avg,\n      position_market_price: mkt,\n      position_market_value: Number(pos.market_value ?? 0),\n      position_unrealized_pl: Number(pos.unrealized_pl ?? 0),\n      position_unrealized_plpc: Number(pos.unrealized_plpc ?? 0),\n      position_pnl_pct: (avg ? ((mkt / avg) - 1) * 100 : null),\n    }\n  };\n});\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        0
+      ],
+      "id": "9318f01c-bf2e-4377-a0e3-5998ea0e1d33",
+      "name": "Clean Portfolio Data1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Finnhub Stock Price": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Format date data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtain Most recent News for each Stock": {
+      "main": [
+        [
+          {
+            "node": "Organize news data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Data": {
+      "main": [
+        [
+          {
+            "node": "Group news per symbol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group news per symbol": {
+      "main": [
+        [
+          {
+            "node": "Aggregate News Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Organize news data": {
+      "main": [
+        [
+          {
+            "node": "Clean Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SET THRESHOLD": {
+      "main": [
+        [
+          {
+            "node": "Get Metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Basic Stock Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge news w/ no news",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Obtain Most recent News for each Stock",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Obtain Most recent News for each Stock - Polygon",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Metrics": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Stock Notification": {
+      "main": [
+        [
+          {
+            "node": "Generate Second Stock Watchlist",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate First Stock Watchlist",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get_positions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Get relevant Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add symbol": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get relevant Keys": {
+      "main": [
+        [
+          {
+            "node": "Got News?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate News Data": {
+      "main": [
+        [
+          {
+            "node": "Clean Final News Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Final News Data": {
+      "main": [
+        [
+          {
+            "node": "Normalized News Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtain Most recent News for each Stock - Polygon": {
+      "main": [
+        [
+          {
+            "node": "Seperate Json by symbol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalized News Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare data for Fibert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge news w/ no news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare data for Fibert": {
+      "main": [
+        [
+          {
+            "node": "AI_Sent_An",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge3": {
+      "main": [
+        [
+          {
+            "node": "Clean Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic Stock Data": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Add symbol",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Seperate Json by symbol": {
+      "main": [
+        [
+          {
+            "node": "Add symbol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Second Stock Watchlist": {
+      "main": [
+        [
+          {
+            "node": "Finnhub Stock Price",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate First Stock Watchlist": {
+      "main": [
+        [
+          {
+            "node": "Alpaca Stock Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alpaca Stock Price": {
+      "main": [
+        [
+          {
+            "node": "Format Basic finance data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Basic finance data": {
+      "main": [
+        [
+          {
+            "node": "Aggregate all basic finance data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format date data": {
+      "main": [
+        [
+          {
+            "node": "Aggregate all basic finance data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Aggregate all basic finance data": {
+      "main": [
+        [
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Prepare non news data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge news w/ no news": {
+      "main": [
+        [
+          {
+            "node": "check if news or not news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check if news or not news": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare non news data": {
+      "main": [
+        [
+          {
+            "node": "No News Stock (with basic metrics)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No News Stock (with basic metrics)": {
+      "main": [
+        [
+          {
+            "node": "FinBERT Sentiment + No news Stocks",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Clean FinBERT data": {
+      "main": [
+        []
+      ]
+    },
+    "Check if movers / notify": {
+      "main": [
+        [
+          {
+            "node": "clean data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "submit_open_queue": {
+      "main": [
+        [
+          {
+            "node": "sync_positions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send ALPACA notifications": {
+      "main": [
+        [
+          {
+            "node": "submit_open_queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "clean data": {
+      "main": [
+        [
+          {
+            "node": "Prepare data for trader",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare data for trader": {
+      "main": [
+        [
+          {
+            "node": "Send ALPACA notifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Metrics": {
+      "main": [
+        [
+          {
+            "node": "Prepare Data For Catboost",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stop loss data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Data For Catboost": {
+      "main": [
+        [
+          {
+            "node": "Single Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Single Payload": {
+      "main": [
+        [
+          {
+            "node": "CatBoost_Intraday",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Got News?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Aggregate News Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "FinBERT Sentiment + No news Stocks": {
+      "main": [
+        [
+          {
+            "node": "Parse News Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re attach News": {
+      "main": [
+        [
+          {
+            "node": "Check if movers / notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI_Sent_An": {
+      "main": [
+        [
+          {
+            "node": "FinBERT Sentiment + No news Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CatBoost_Intraday": {
+      "main": [
+        [
+          {
+            "node": "decisions with RTH vs OOH staging + basic metrics 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "decisions with RTH vs OOH staging + basic metrics 1": {
+      "main": [
+        [
+          {
+            "node": "Merge5",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Parse News Data": {
+      "main": [
+        [
+          {
+            "node": "Re attach News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_positions": {
+      "main": [
+        [
+          {
+            "node": "Clean Portfolio Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge4": {
+      "main": [
+        [
+          {
+            "node": "SET THRESHOLD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop loss data": {
+      "main": [
+        [
+          {
+            "node": "Merge5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge5": {
+      "main": [
+        [
+          {
+            "node": "Stop Loss calc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop Loss calc": {
+      "main": [
+        [
+          {
+            "node": "Re attach News",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Clean Portfolio Data": {
+      "main": [
+        [
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stock Notification1": {
+      "main": [
+        [
+          {
+            "node": "get_positions1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_positions1": {
+      "main": [
+        [
+          {
+            "node": "Clean Portfolio Data1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Costa_Rica",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "pS9PRA4erVpdoeey"
+  },
+  "versionId": "8818eed8-bf78-46ca-b853-f2692a42a2d7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "337c49dd951b26022e79482d18f33a939894ba30a9aa45175673ab2aacde2fda"
+  },
+  "id": "pS9PRA4erVpdoeey",
+  "tags": []
+}
