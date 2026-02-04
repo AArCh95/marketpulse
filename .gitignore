@@ -12,12 +12,9 @@
 # Windows reserved device names
 nul
 
-# n8n workflows with embedded credentials (ignore originals)
-MarketPulse n8n structure.json
-*_BACKUP.json
-
-# Allow sanitized n8n workflows
-!n8n/*_SANITIZED.json
+# n8n workflows with embedded credentials
+MarketPulse*.json
+*n8n*.json
 
 # Internal audit reports (contain key documentation)
 GITHUB_AUDIT_REPORT.md
