@@ -546,11 +546,11 @@
           "parameters": [
             {
               "name": "APCA-API-KEY-ID",
-              "value": "PKFTA8FHFTXP5OGA0SLA"
+              "value": "YOUR_ALPACA_API_KEY_ID_HERE"
             },
             {
               "name": "APCA-API-SECRET-KEY",
-              "value": "ztJSbWMENxSNfhu9pLBs3B1aTbYvdNdgR6PRlXpi"
+              "value": "YOUR_ALPACA_API_SECRET_KEY_HERE"
             }
           ]
         },
